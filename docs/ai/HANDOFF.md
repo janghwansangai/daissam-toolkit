@@ -2,7 +2,8 @@
 
 - 목표: 브라우저 보완관 v0.1 사용자 피드백 수정·기능 추가. 완료 조건은 PROJECT의 "완료 조건과 제한".
 - 상태/활성 편집자: v0.34.0(카메라 창 유지·첫 고르기 두 갈래 방어·윈도우 디스플레이 알림·윈도우 인수인계 문서) 반영·서명·설치·포장 완료(2026-09-23). 윈도우 전부 미검증 / 맥 Claude(이 폴더 단독 편집).
-- **윈도우 세션과 나눠 일한다**: `docs/ai/WINDOWS_HANDOFF.md` 를 먼저 읽을 것. 윈도우 세션이 `presenter/windows/**` 를 소유하고, 맥 세션은 `extension/**`·`presenter/macos/**`·`dist/**`·버전 번호를 소유한다. Git 이 없으므로 같은 파일을 동시에 고치지 말 것.
+- **저장소**: https://github.com/janghwansangai/daissam-toolkit (비공개, 기본 브랜치 `main`). `dist/`·`.build/`·`presenter/windows/bin|obj` 는 올리지 않는다(.gitignore).
+- **윈도우 세션과 나눠 일한다**: `docs/ai/WINDOWS_HANDOFF.md` 를 먼저 읽을 것. 윈도우 세션은 **`windows` 브랜치**에서 `presenter/windows/**` 만 고치고 PR 로 올린다. 맥 세션은 `main` 에서 `extension/**`·`presenter/macos/**`·`dist/**`·버전 번호를 소유하고, PR 을 확인해 합친다. 같은 파일을 양쪽이 고치지 말 것.
 - v0.34.0 함정(중요): **표시기에 보내는 모든 알림에 `cameraView` 를 실어야 한다.** 1초마다 가는 `badge('update')` 에서 빠뜨려 앱이 카메라 창을 1초 만에 닫았다. 새 상태값을 더할 때마다 `show`·`update` 양쪽을 볼 것.
 - v0.34.0 고르기: 녹화 창은 뜨자마자 `focusMe()` 로 앞에 선다(초점 없는 창의 첫 누름은 맥에서 삼켜진다). `getDisplayMedia` 가 2.5초 안에 그냥 돌아오면 `chooseDesktopMedia` 로 한 번 더 띄운다.
 - (이전) v0.33.0(도크 창 단추만·화면 조각 저장·고르기 손길·앱이 그리는 카메라 동그라미·통과 핀 휠 투명도) 반영·서명·설치·포장 완료(2026-09-23). 윈도우 전부 미검증 / Claude(이 폴더 단독 편집).

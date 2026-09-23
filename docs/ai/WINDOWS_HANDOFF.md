@@ -39,14 +39,37 @@ Chrome 확장(사이드바·녹화 창·도크)
 - 앱은 자기 상태를 `%LOCALAPPDATA%\BrowserSheriff\state.json` 에 쓴다. 도우미가 그것을 읽어 확장에 돌려준다.
 - 이벤트 이름: `Local\BrowserSheriffPresenterCommand`, `Local\BrowserSheriffRecorder`, (활성화용 하나 더).
 
-## 3. 협업 규칙 — Git 이 없다
+## 3. 협업 규칙 — 브랜치로 주고받는다
 
-1. **파일 단위로 나눠 갖는다.** 윈도우 세션은 위 표의 ‘윈도우 세션’ 칸만 고친다.
-2. 공용 파일(`extension/**`)을 꼭 고쳐야 하면 **고치지 말고 적어서 보낸다**: 어느 파일 몇 줄을 왜 어떻게. 맥 세션이 반영한다. (동시에 고치면 한쪽이 통째로 사라진다.)
-3. 돌려줄 때는 **바뀐 파일 전체**를 보낸다(`Presenter.cs` 는 한 파일이라 통째로가 안전하다). 사용자가 맥으로 옮긴다.
-4. 받은 쪽은 반영 전에 **자기 쪽 변경과 겹치는지** 먼저 본다. 겹치면 사용자에게 알리고 합칠 방법을 정한다.
-5. 작업이 끝나면 `docs/ai/HANDOFF.md` 에 **윈도우 절**만 갱신한다(다른 절은 건드리지 않는다).
-6. 버전 번호(`package.json`·`manifest.json`·`Presenter.csproj`·`build.sh` 의 plist)는 **맥 세션만** 올린다. 윈도우에서 올리면 배포본 이름이 어긋난다.
+저장소: **https://github.com/janghwansangai/daissam-toolkit** (비공개)
+
+| 브랜치 | 누구 것 | 무엇 |
+|---|---|---|
+| `main` | 맥 세션 | 기준. 확장·맥 앱·버전·배포본이 여기서 정해진다 |
+| `windows` | **윈도우 세션** | 윈도우 작업은 전부 여기서. `main` 에 직접 올리지 않는다 |
+
+```bat
+git clone https://github.com/janghwansangai/daissam-toolkit.git
+cd daissam-toolkit
+git checkout windows
+git pull origin main        :: 맥 쪽 최신을 먼저 받아 온다(작업 시작 때마다)
+```
+
+작업이 끝나면:
+
+```bat
+git add presenter/windows
+git commit -m "윈도우: (무엇을 고쳤는지 한 줄)"
+git push origin windows
+gh pr create --base main --head windows --title "윈도우: ..." --body "(9장 형식으로)"
+```
+
+1. **`presenter/windows/**` 와 `*.cmd` 만 커밋한다.** 다른 폴더가 `git status` 에 잡히면 커밋하지 말고 그대로 두거나 알린다.
+2. 공용 파일(`extension/**`)을 꼭 고쳐야 하면 **고치지 말고 PR 본문에 적는다**: 어느 파일 몇 줄을 왜 어떻게. 맥 세션이 `main` 에서 반영한다.
+3. **`main` 으로 직접 push 하지 않는다.** 합치는 것은 맥 세션이 PR 을 보고 한다.
+4. 충돌이 나면 혼자 풀지 말고 어떤 파일이 겹쳤는지 알린다(같은 파일을 양쪽이 고친 것이므로 규칙이 깨진 것이다).
+5. 버전 번호(`package.json`·`manifest.json`·`Presenter.csproj`·`build.sh` 의 plist)는 **맥 세션만** 올린다.
+6. 작업 단위가 끝나면 `docs/ai/HANDOFF.md` 의 **윈도우 절**만 갱신해 함께 커밋한다.
 
 ## 4. 절대 바꾸면 안 되는 것 (계약)
 
