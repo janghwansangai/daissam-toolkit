@@ -1,0 +1,32 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>다있쌤 · 잠금</title><style>
+/* Windows 에는 맥의 시스템 글꼴이 없어서, 라틴 글자는 Segoe UI·한글은 맑은 고딕으로
+   따로 떨어져 한 줄 안에서 두 글꼴이 섞였다. 게다가 맑은 고딕은 굵기가 400·700 둘뿐이라
+   CSS 의 600 을 브라우저가 흉내 내 그리면서 획이 뭉갰다. 그래서 Windows 에서만 흐릿했다.
+   Pretendard(OFL 1.1) 를 함께 담아 Windows 에서는 이 글꼴 하나로 그린다. 가변 글꼴이라
+   45~920 사이 굵기가 모두 진짜다. 인터넷에서 받아오지 않고 확장 안의 파일을 쓴다. */
+@font-face{font-family:'Pretendard Variable';font-style:normal;font-weight:45 920;font-display:swap;
+  src:url('fonts/PretendardVariable.woff2') format('woff2-variations')}
+
+:root{color-scheme:light dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-content:center;text-align:center;padding:32px;
+  background:#17452f;color:#eaf7e2;font:16px/1.7 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard Variable','Segoe UI',sans-serif}
+.label{font-size:11px;letter-spacing:2px;color:#9dbca4}
+h1{font-size:34px;letter-spacing:-1px;margin:14px 0 10px}
+p{color:#c2dcc6;margin:0 0 6px;max-width:34rem}
+.actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+button{font:inherit;border:0;border-radius:14px;padding:15px 24px;cursor:pointer}
+.primary{background:#dff39c;color:#16342b;font-weight:700}
+.quiet{background:#265640;color:#eaf7e2}
+button:focus-visible{outline:3px solid #dff39c;outline-offset:3px}
+small{display:block;margin-top:24px;color:#8fb198;font-size:12px}
+code{background:#12382605;color:#cfe6d3;word-break:break-all}
+</style></head><body>
+<div class="label">다있쌤 · 잠금</div>
+<h1 id="title">잠겨 있습니다</h1>
+<p>다른 프로필로 로그인하세요.</p>
+<p>계속 사용하려면 PIN 확인이 필요합니다.</p>
+<div class="actions"><button id="unlock" class="primary" type="button">PIN 확인하기</button><button id="guest" class="quiet" type="button">게스트 창으로 넘어가기</button><button id="close" class="quiet" type="button">이 탭 닫기</button></div>
+<small id="target"></small>
+<small>열려 있던 다른 탭과 입력한 내용은 그대로 남아 있습니다.</small>
+<script src="locked.js"></script></body></html>

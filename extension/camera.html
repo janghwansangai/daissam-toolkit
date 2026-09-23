@@ -1,0 +1,52 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>웹캠</title><style>
+/* Windows 에는 맥의 시스템 글꼴이 없어서, 라틴 글자는 Segoe UI·한글은 맑은 고딕으로
+   따로 떨어져 한 줄 안에서 두 글꼴이 섞였다. 게다가 맑은 고딕은 굵기가 400·700 둘뿐이라
+   CSS 의 600 을 브라우저가 흉내 내 그리면서 획이 뭉갰다. 그래서 Windows 에서만 흐릿했다.
+   Pretendard(OFL 1.1) 를 함께 담아 Windows 에서는 이 글꼴 하나로 그린다. 가변 글꼴이라
+   45~920 사이 굵기가 모두 진짜다. 인터넷에서 받아오지 않고 확장 안의 파일을 쓴다. */
+@font-face{font-family:'Pretendard Variable';font-style:normal;font-weight:45 920;font-display:swap;
+  src:url('fonts/PretendardVariable.woff2') format('woff2-variations')}
+
+:root{color-scheme:light;--ink:#173b36;--line:#e3e6db}*{box-sizing:border-box}
+/* 창이 작아도 단추가 화면 밖으로 밀리지 않도록, 조작 줄을 위에 붙이고 영상만 줄인다. */
+body{margin:0;padding:14px;background:#fafbf5;color:var(--ink);
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard Variable','Segoe UI',sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.picks{display:flex;gap:8px;flex-wrap:wrap}
+.pick{flex:1 1 200px;min-width:0;font-size:11px;font-weight:600;color:#5d6b5f}
+.pick select{width:100%;margin-top:4px;font:inherit;font-size:12px;padding:8px 9px;
+  border:1px solid #dce1d4;border-radius:9px;background:white;color:var(--ink)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;border:0;border-radius:10px;padding:10px 15px;cursor:pointer;background:#e8eddf;color:var(--ink)}
+button.primary{background:var(--ink);color:#f6f9e9;font-weight:700}
+button.rec{background:#ad493b;color:white;font-weight:700}
+button:disabled{opacity:.45;cursor:not-allowed}
+#state{font-weight:700;font-size:12px;margin:0;color:#4a5a4d}
+#state.live{color:#ad493b}
+/* 결과가 쌓여도 미리보기가 납작해지지 않도록, 영상은 바닥을 두고 목록이 대신 스크롤한다. */
+video#view{flex:1 1 auto;min-height:170px;width:100%;background:#1b2b25;border-radius:12px;object-fit:contain}
+#takes{flex:0 1 auto;max-height:36vh;overflow:auto;display:flex;flex-direction:column;gap:8px;min-height:0}
+.take{border:1px solid #d9e2ce;background:#fbfdf4;border-radius:11px;padding:9px 10px}
+.take-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;margin-bottom:7px}
+.take-head span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.take-head button{padding:6px 11px;font-size:12px;flex:none}
+.take-head button.keep{background:#dff39c;font-weight:700}
+.take video,.take img{width:100%;max-height:190px;object-fit:contain;background:#eef2e6;border-radius:8px;display:block}
+.take audio{width:100%}
+p.note{font-size:11px;color:#69766c;line-height:1.7;margin:0}
+</style></head><body>
+<div class="picks">
+  <label class="pick">카메라<select id="cam-pick"><option value="">기본 카메라</option></select></label>
+  <label class="pick">녹화 소리<select id="mic-pick"><option value="">기본 마이크</option><option value="none">소리 없이</option></select></label>
+</div>
+<div class="row">
+  <button id="start" class="primary" type="button">카메라 켜기</button>
+  <button id="record" class="rec" type="button" disabled>녹화 시작</button>
+  <button id="shot" type="button" disabled>사진 찍기</button>
+  <button id="stop" type="button" disabled>끄기</button>
+  <p id="state">꺼짐</p>
+</div>
+<video id="view" autoplay playsinline muted></video>
+<div id="takes"></div>
+<p class="note">찍은 사진과 녹화한 영상은 <b>먼저 여기에서 확인</b>하고, <b>저장</b>을 눌러야 파일로 내려받습니다. 어디로도 보내지 않고 확장 안에도 남기지 않습니다. 창을 닫으면 카메라가 꺼지고 저장하지 않은 것은 사라집니다.</p>
+<script src="camera.js"></script></body></html>

@@ -1,0 +1,214 @@
+# 현재 인수인계
+
+- 목표: 브라우저 보완관 v0.1 사용자 피드백 수정·기능 추가. 완료 조건은 PROJECT의 "완료 조건과 제한".
+- 상태/활성 편집자: v0.34.0(카메라 창 유지·첫 고르기 두 갈래 방어·윈도우 디스플레이 알림·윈도우 인수인계 문서) 반영·서명·설치·포장 완료(2026-09-23). 윈도우 전부 미검증 / 맥 Claude(이 폴더 단독 편집).
+- **윈도우 세션과 나눠 일한다**: `docs/ai/WINDOWS_HANDOFF.md` 를 먼저 읽을 것. 윈도우 세션이 `presenter/windows/**` 를 소유하고, 맥 세션은 `extension/**`·`presenter/macos/**`·`dist/**`·버전 번호를 소유한다. Git 이 없으므로 같은 파일을 동시에 고치지 말 것.
+- v0.34.0 함정(중요): **표시기에 보내는 모든 알림에 `cameraView` 를 실어야 한다.** 1초마다 가는 `badge('update')` 에서 빠뜨려 앱이 카메라 창을 1초 만에 닫았다. 새 상태값을 더할 때마다 `show`·`update` 양쪽을 볼 것.
+- v0.34.0 고르기: 녹화 창은 뜨자마자 `focusMe()` 로 앞에 선다(초점 없는 창의 첫 누름은 맥에서 삼켜진다). `getDisplayMedia` 가 2.5초 안에 그냥 돌아오면 `chooseDesktopMedia` 로 한 번 더 띄운다.
+- (이전) v0.33.0(도크 창 단추만·화면 조각 저장·고르기 손길·앱이 그리는 카메라 동그라미·통과 핀 휠 투명도) 반영·서명·설치·포장 완료(2026-09-23). 윈도우 전부 미검증 / Claude(이 폴더 단독 편집).
+- v0.33.0 녹화 고르기: 전체 화면은 **`getDisplayMedia` 를 ‘화면 고르기’ 단추의 손길에서** 부른다. 확장 API 의 `chooseDesktopMedia` 는 초점이 흔들리면 **빈 목록**으로 뜨거나 취소로 돌아왔다(사용자 보고 2회). 자동 시작을 되살리지 말 것 — 손길 없이는 고르기 창이 제대로 열리지 않는다.
+- v0.33.0 카메라: 전체 화면 녹화의 동그란 카메라 창은 **앱이 그린다**(맥 `CameraPanel`+AVFoundation, 윈도우 `CameraForm`+MediaCapture). 확장은 `cameraView=1` 로 부탁하고 앱 상태의 `camera` 를 최대 2.6초 기다려 본 뒤, 못 떴으면 **영상 안에 합쳐** 넣는다. 둘 다 나오지 않게 하는 장치다 — 한쪽만 고치지 말 것.
+- v0.33.0 카메라 권한: 맥은 첫 사용에 TCC 물음이 뜬다. `.notDetermined` 면 **묻기만 하고 그 녹화에는 띄우지 않는다**(늦게 떠서 두 개가 되는 것을 막는다). 메뉴의 ‘녹화 카메라 창 미리 보기’ 로 미리 허용할 수 있다. 윈도우는 첫 그림이 2.2초 안에 안 오면 포기한다.
+- v0.33.0 도크 창: 바깥 크기만 주면 제목 표시줄 두께만큼 속이 줄어든다(시험용 Chrome 88px → 단추 줄이 8px 만 보였다). `fit()` 이 안쪽을 재서 바깥을 다시 맞춘다. 창 안에 줄을 더 넣지 말 것.
+- v0.33.0 통과 핀 휠: 통과를 켜면 창이 마우스를 못 받으므로 **앱이 휠을 가로채** 투명도를 바꾼다(맥 CGEventTap · 윈도우 WH_MOUSE_LL). 통과 핀이 있을 때만 걸고, 그 핀 위에서는 **이벤트를 삼킨다**(안 그러면 페이지도 같이 구른다). 맥은 손쉬운 사용 권한이 있어야 한다.
+- v0.33.0 화면 조각 저장: 도크의 ‘선택 영역’ 은 `snip-save` 로 앱이 화면 전체에서 고르게 한다(맥은 모니터마다 덮개, 윈도우는 가상 화면 전체 하나). 브라우저 탭만 찍던 `captureVisibleTab` 은 앱이 없을 때의 물러날 자리로만 남겼다.
+- v0.32.0 한계(중요): **확장은 사이드바를 스스로 다시 열 수 없다.** `sidePanel.open()` 은 "may only be called in response to a user gesture" 로 거절된다(서비스 워커에서 직접 확인). 그래서 캡처가 끝나면 그 탭의 사이드바를 **다시 켜 두고**(setOptions enabled) 결과는 페이지 위 알림·알림창·`lastCapture` 쪽지로 알린다. 여는 것은 사용자가 확장 아이콘이나 도크 창의 ☰ 를 누를 때.
+- v0.32.0 함정: 페이지 위 알림을 `requestAnimationFrame` 으로 나타나게 하면 **숨은 탭에서 투명한 채로 남는다**(rAF 가 안 돈다). 오류 페이지·chrome:// 탭에는 주입 자체가 거절된다.
+- v0.32.0 녹화: 녹화가 시작되면 녹화 창을 **내린다**(표시기가 떴을 때만 — 앱이 없으면 그 창이 유일한 조작 자리다). 내린 창은 타이머가 느려지므로 시계를 `recorder.ondataavailable`(1초 조각)로도 민다.
+- v0.32.0 녹화 2: 고르기 창은 **초점이 움직이면 Chrome 이 닫아 버린다**. 사이드바를 닫고 450ms 뒤에 녹화 창을 열고, 녹화 창은 `focusMe()` 로 초점을 잡은 뒤에 고르기 창을 띄운다. 이 순서를 건드리지 말 것.
+- v0.32.0 카메라: 따로 띄우던 창(bubble.html)은 **삭제**했다(제목 표시줄 달린 네모가 화면에 보였다). 이제 어느 녹화든 `composed()` 가 영상 안 오른쪽 아래에 동그랗게 합쳐 넣는다 — 화면에 보이는 live 자기 모습은 없다(원하면 앱이 그리는 방식으로 옮겨야 한다).
+- v0.32.0 도크: 사이드바 도크는 11개가 한 줄에 들어간다(300px 에서 244px 사용). 단추를 더 넣으려면 먼저 폭을 재 볼 것 — 넘치면 아랫줄로 내려간다. ‘클립보드 붙이기’ 는 발표 탭과 도크 창에만 남겼다.
+- v0.7.0: 사이드바에서 발표 시작·종료·집중 모드와 어둡기·흐림·원 크기·색 조절(확장 → 도우미 → DistributedNotification → 앱), 버튼을 본문 바로 아래로, 자동 메모 이름을 날짜·시각으로.
+- v0.7.0 주의: 인증서 서명은 키체인 승인 때문에 멈춘다. allow-signing-key.sh 를 사용자가 한 번 실행해야 하며 그 전까지 build.sh 는 25초 뒤 임시 서명으로 넘어간다. 중단된 codesign 의 .cstemp 가 다음 서명을 막으므로 build.sh 가 먼저 지운다.
+- 확장 제거 자체를 막거나 PIN 을 묻는 것은 불가능(Chrome 에 훅 없음). 대신 v0.8.0 에서 PIN 을 확인하면 5분간 로그아웃을 해제하는 방식으로 풀었다.
+- 배포(직접 전달): `npm run package` 가 **dist/handout** 을 만든다 — ZIP 3개 + 버전이 채워진 설치 안내문(`docs/install-guide.html` 이 틀) + SHA256SUMS. **dist/release 를 통째로 건네지 말 것** — .DS_Store, 예전 앱 사본, 개발용 README 가 섞여 있다.
+- 배포 함정: **맥 ZIP 은 ditto 의 `--sequesterRsrc` 를 빼면 안 된다.** macOS 가 모든 파일에 com.apple.provenance 확장 속성을 자동으로 붙이는데(지울 수 없다), 이 옵션이 없으면 그것이 번들 안에 `._Info.plist` 로 풀려 들어가 **서명이 깨진다**("file added"). 0.24.0 에서 실제로 확인하고 되돌렸다. 압축을 푼 뒤 `codesign --verify --deep --strict` 로 확인할 것.
+- 배포 검사(2026-09-20): 확장 ZIP·맥 앱·윈도우 exe 어디에도 사용자 이름·이메일·컴퓨터 이름·폴더 경로 없음. 서명 인증서 주체는 `CN=Browser Sheriff Local Signing` 뿐. 확장에 fetch/XHR/WebSocket/sendBeacon 이 하나도 없고 바깥 주소는 music.youtube.com 하나(사용자가 직접 여는 탭). 두 앱에 네트워크 코드 없음.
+- 배포 미해결: 맥 앱은 자체 서명이라 받는 사람이 '개인정보 보호 및 보안 → 그래도 열기' 를 해야 한다(Apple Developer 연 $99 + 공증이 있어야 없어짐). 윈도우 exe 는 서명 없어 SmartScreen 경고(코드 서명 인증서 필요). 확장 ID 를 웹 스토어로 옮기면 바뀌므로 앱 3곳(install.sh·Presenter.swift·Presenter.cs)을 다시 빌드해야 한다.
+- v0.29.0 버그 2(윈도우): **윈도우 네이티브 도우미 `Forward()` 에도 같은 이름 목록이 따로 있다**(`"action","ring","ringSize","dim","blur"`). 여기서도 `keys` 가 빠져 **윈도우에서는 바꾼 단축키가 한 번도 앱에 닿지 않았다.** 이름 목록은 **세 곳**(확장 background.js · 윈도우 Forward · 맥 forward 는 전부 통과) — 새 값을 앱에 보낼 때 셋 다 볼 것.
+- v0.29.0 빈틈 3: 단축키는 '그 컴퓨터의 사이드바가 명령을 보낼 때' 만 실려 갔다. 다른 기기에서 바꾸면 동기화로 사이드바 표시만 바뀌고 **그 컴퓨터의 앱은 옛 조합** 그대로였다. 이제 두 앱이 상태 파일과 도우미 답에 `keys`(지금 듣는 조합, 사이드바 hotNorm 과 같은 글)와 `running` 을 싣고, 사이드바가 **어긋나면 다시 보낸다**(3초 간격, 최대 3번). 결과는 단축키 칸 아래 `#key-app` 에 보인다 — 적용됨 ✓ / 앱 꺼짐 / 옛 앱이라 못 받음 / 세 번 보냈는데 안 됨.
+- v0.29.0 관찰: 2026-09-22 아침 macOS 업데이트(Darwin 27) 뒤 **발표 도우미 앱이 꺼져 있었다.** 전역 단축키는 앱이 떠 있어야 듣는다. 로그인 시 자동 실행은 아직 없다(사용자에게 제안만 함).
+- v0.29.0 버그(제일 중요): **background.js 가 앱으로 넘길 값 이름을 화이트리스트로 걸러낸다**(`['action','dim','blur','ring','ringSize']`). 여기에 `keys` 를 빠뜨려서, 사이드바는 제대로 보냈는데 **앱은 늘 기본 조합만 들었다.** 사이드바 → background 한 홉만 확인하고 끝낸 것이 원인이다. **앱으로 가는 새 값을 넣을 때는 반드시 이 목록도 고치고, 도우미가 받은 메시지까지 확인할 것.** 회귀 시험을 background.test.mjs 에 넣어 두었다.
+- v0.29.0 발표 시작 단축키(`present`, 기본 ⌃⌥P / Ctrl+Alt+P): 한 키로 켜고 끈다. **발표 전에 들려야 하므로 늘 듣는 자리에 등록해야 한다.**
+  - 맥: `RegisterEventHotKey` 갈래 번호 **5**(1~4 는 핀). 이벤트 탭은 발표 중에만 걸리므로 거기에 두면 안 된다.
+  - 윈도우: 저수준 키 훅은 발표 중에만 걸린다. 그래서 안내 창(숨어 있어도 메시지 루프가 있다)을 `HelpForm` 으로 만들어 **`RegisterHotKey` + `WM_HOTKEY`(0x0312)** 로 **여섯 개 모두** 등록했다. 발표 중에는 훅이 핀 단축키를 먼저 삼키므로 두 번 실행되지 않고, 발표 시작 키만 훅을 그냥 지나 여기로 와서 '종료' 가 된다. 종료할 때 `UnregisterHotKey` 를 빠뜨리면 다음 실행에서 등록이 실패한다.
+  - `RegisterHotKey` 의 깃발은 **MOD_ALT 1 · MOD_CONTROL 2** 로 우리 번호(Ctrl 1 · Alt 2)와 **서로 바뀌어 있다.** `Keys2.Flags` 가 바꿔 준다.
+- v0.31.0: 녹화 표시기(화면 녹화에 안 담기는 작은 창) · 녹화 중 카메라 창 · 캡처/녹화 때 사이드바 자동 닫기(기본 켜짐) · 도크 분리 창 · 맥 화면 기록 권한 안내.
+- v0.31.0 표시기 구조: 확장(record.js) → background `recorder-badge` → **오래 열어 두는 네이티브 포트**(connectNative) → 도우미 → 앱. 단추를 누르면 반대로 앱 → 도우미 → background → `recorder-button` 방송 → record.js. 맥은 DistributedNotification, 윈도우는 `recorder.json`/`recorder-button.json` + 이름 있는 이벤트 `Local\BrowserSheriffRecorder`(도우미가 300ms 주기로 단추 파일을 집는다).
+- v0.31.0 표시기 핵심: 맥 `NSPanel.sharingType = .none`, 윈도우 `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE=0x11)`. **이 두 줄이 “녹화되지 않는 창” 의 전부다.** 옮기기는 맥 `isMovableByWindowBackground`, 윈도우 `WM_NCLBUTTONDOWN(HTCAPTION)`. 둔 자리는 맥 UserDefaults·윈도우 `badge-spot.txt`.
+- v0.31.0 함정: `recorder-badge`·`screen-settings` 는 **잠금 문 앞**에 둬야 한다. 뒤에 뒀더니 프로필이 잠긴 동안 녹화 중 표시기가 뜨지 않았다(실제 Chrome 에서 확인).
+- v0.31.0 함정 2: Chrome 은 **서비스 워커 스크립트를 캐시**한다. 파일을 고치고 브라우저를 다시 켜도 옛 코드가 돌 수 있다 — 시험할 때 `<user-data-dir>/Default/Service Worker` 를 지우면 확실하다. 이것 때문에 고친 코드를 두 번 헛짚었다.
+- v0.31.0 사이드바 닫기: 두 길을 함께 쓴다 — 사이드바가 스스로 `window.close()`, background 가 그 탭에서 `sidePanel.setOptions({enabled:false})` 후 되돌리기. **`sidePanel.open()` 은 진짜 사용자 손길에서만 되므로 자동 시험으로는 열 수 없다**(CDP userGesture 로도 안 됨). 대신 `waitWider` 를 단위 시험으로 확인했다.
+- v0.31.0 맥 권한: 고르기 창에서 ‘전체 화면·창’ 이 흐린 것은 **Chrome** 에 화면 기록 권한이 없어서다(발표 도우미 앱의 권한과 별개). 도우미의 `screen-settings` 명령이 그 설정 자리를 연다.
+- v0.30.0: **캡처 탭**(어썸 스크린샷 참고, 클라우드 없음) + 도크 빠른 캡처 2개 + 설정 즉시 저장.
+- v0.30.0 구조: `capture-core.js`(서비스 워커: 보이는 부분·선택 영역·전체 페이지 이어 붙이기, OffscreenCanvas) · `lib/shots.js`(IndexedDB 최근 30장, 도우미 `shot`·`ocr` 호출, 설정대로 보내기) · `capture.html/css/js`(편집기) · `record.html/js`(녹화 창 = 컨트롤 바). 전체 화면·앱 창 사진은 getDisplayMedia 가 누른 직후에만 되므로 사이드바(panel.js)에서 찍는다.
+- v0.30.0 권한: `host_permissions` 를 `<all_urls>` 로 — **captureVisibleTab 은 http/https 전체로는 거절된다**(실제 Chrome 에서 "Either the '<all_urls>' or 'activeTab' permission is required"). 설치 경고 문구는 같다. 녹화용 `desktopCapture`·`tabCapture` 추가. content_scripts 는 그대로 http/https.
+- v0.30.0 도우미: 맥·윈도우에 `shot`(바탕화면 ‘캡처이미지’ 저장 + 클립보드, 이름 `다있쌤-스크린샷-…` — `다있쌤-캡처-` 는 메모 자동 가져오기가 읽는 이름이라 피함)과 `ocr`(맥 Vision ko-KR/en-US, 윈도우 Windows.Media.Ocr) 추가. 받는 크기 한도 1MB → 96MB. **모르는 명령에도 반드시 답한다(`kind:'unknown'`)** — 옛 도우미는 답하지 않아 캡처가 끝없이 기다렸다(실제 확인). 확장 쪽도 20초/60초 시간 한도.
+- v0.30.0 윈도우 빌드: OCR 때문에 대상이 `net8.0-windows10.0.19041.0`(SupportedOSPlatformVersion 10.0.17763.0). exe 162→178MB. build.sh 가 TFM 폴더를 따라간다. **윈도우 실기기에서 한 번도 실행해 보지 못했다.**
+- v0.30.0 캡처 함정: 가려진 창·숨은 탭은 Chrome 이 다시 그리지 않아(초당 0장) captureVisibleTab 이 **예전 화면**을 준다. 숨은 탭에서는 requestAnimationFrame 도 오지 않으므로 페이지 안 기다림마다 시간 한도(300~400ms)를 두고, 보이지 않는 탭은 찍지 않고 알린다. 잠금을 막 푼 직후 잠금 덮개가 남아 있으면 걷힐 때까지(최대 2초) 기다린다.
+- v0.30.0 편집기 함정: 글자 도구에서 누르자마자 글상자를 열면 이어지는 기본 동작이 초점을 캔버스로 가져가 **열리자마자 닫혔다** — setTimeout 으로 열고 mousedown 을 막는다. capture.css 에 `[hidden]{display:none!important}` 가 없으면 자르기 단추·글자 창이 늘 떠 있었다.
+- v0.30.0 설정: 잠금 체크는 맨 아래 ‘설정 저장’ 을 눌러야만 저장됐고, 그 사이 상태가 다시 그려지면 원래대로 돌아갔다(‘잠그기를 껐는데 돌아와 보니 켜져 있다’). 이제 바꾸는 즉시 저장. 이 값들은 `chrome.storage.local` 이라 **처음부터 기기마다 따로**였다(윈도우 동기화 탓이 아님).
+- v0.30.0 시험 방법(재사용): Chrome for Testing(~/.cache/puppeteer/chrome/mac_arm-153…)은 `--load-extension` 이 된다. `--remote-debugging-port` 로 DevTools 프로토콜을 직접 써서 캡처·편집기·녹화를 진짜로 돌렸다. 고르기 창은 스크립트로 누를 수 없어 녹화 시험에서는 고르기 창과 장치만 흉내 냈다. `<user-data-dir>/NativeMessagingHosts` 에 도우미 매니페스트를 두면 그 브라우저에서도 도우미가 붙는다.
+- v0.29.0: 발표 단축키를 사용자가 바꾸기(맥·윈도우 따로), 윈도우 단축키 안내, 맥에서 커서가 화면 맨 위로 가면 확대가 사라지던 것, 사이드바 자간 조절 + 글자 크기가 실제로 먹게.
+- v0.29.0 단축키 설계: 한 가지 글 `focus=ctrl+alt+F;snip=…;clip=…;clear=…;unlock=…` 을 **세 곳이 같은 규칙으로** 읽는다 — `extension/lib/keys.js`, `Presenter.swift` 의 `Keys/Combo`, `Presenter.cs` 의 `Keys2/Combo`. 주 키는 A~Z·0~9 만(F1~F12 는 양쪽 OS 가 이미 씀), 수정 키 2개 이상, Command/Windows 키 금지, Alt+Shift 금지(윈도우 배열 전환·맥 특수문자). 윈도우의 Ctrl+Shift 는 허용하되 Chrome 과 겹친다고 알린다.
+- v0.29.0 단축키 저장: 확장은 `chrome.storage.sync` 의 `hotkeys:{mac:{…},win:{…}}` 에 **두 벌**. 앱에는 이 컴퓨터 벌만 `knobPayload` 에 실어 보낸다. 앱도 따로 남긴다 — 맥 `UserDefaults("hotkeys")`, 윈도우 `%LOCALAPPDATA%\BrowserSheriff\keys.txt`. 앱만 켜도 지난 조합이 듣는다.
+- v0.29.0 맥 주의: 핀 4개는 `RegisterEventHotKey`(앱이 떠 있으면 늘 들음), **집중 모드만 이벤트 탭**(발표 중에만 들음)이다. 두 곳에서 같이 잡으면 한 번 누른 것이 두 번 실행된다. `installHotKeys` 는 다시 부를 수 있게 먼저 `UnregisterEventHotKey` 하고, 받는 자리(InstallEventHandler)는 `hotKeyHandler` 로 **한 번만** 단다.
+- v0.29.0 윈도우 주의: 키 훅은 발표 중에만 걸린다(원래 그랬다). 수정 키는 **정확히 같을 때만** 맞는 것으로 본다 — Windows 키가 끼면 운영체제에 양보한다.
+- v0.29.0 맨 위 확대 끊김: 커서를 화면 맨 윗줄로 밀면 `NSEvent.mouseLocation.y == frame.maxY` 인데 `NSRect.contains` 는 maxY 를 바깥으로 본다. 예전 `updatePointer` 는 그것을 '다른 모니터로 나갔다'로 읽고 `window?.orderOut` 했다. 이제 옮길 화면이 없으면 **테두리 안으로 당겨 그대로 그린다**. 오른쪽 끝(x=maxX)도 같은 문제였다.
+- v0.29.0 글자 크기(중요): CSS 의 글자 크기 **74곳이 고정 px** 이라 v0.28.0 의 크기 조절은 본문만 바뀌고 나머지는 그대로였다. `html{font-size:var(--ui-size)}` 로 두고 전부 `rem`(기준 14px)으로 바꿔 비례하게 했다. 새 CSS 를 쓸 때도 글자 크기는 rem 으로 적을 것.
+- v0.29.0 자간: `--ui-track`(-0.4 ~ +1.2px). 또렷한 글꼴(맑은 고딕·굴림·돋움)은 `[data-crisp]` 로 0 에서 시작하고, 그 밖의 글꼴은 값이 0 이 아닐 때만 `[data-track]` 이 붙어 제목마다 손으로 넣은 음수 자간까지 덮는다.
+- v0.29.0 하네스 버그: `scripts/preview.mjs` 가 `/panel.css` 를 404 로 돌려주어 **미리보기가 스타일 없이 떴다**. 그 상태에서 잰 값은 뜻이 없다(v0.28.0 글꼴 확인이 그랬다). 이제 뿌리에 없으면 `extension/` 에서 찾는다. **미리보기로 모양을 잴 때는 `document.styleSheets[0].cssRules.length` 를 먼저 볼 것.**
+- v0.29.0 사고: `build.sh && install.sh` 를 한 줄로 묶었다가 빌드가 임시 서명으로 떨어진 것을 못 보고 **ad-hoc 을 설치해 화면 기록 권한을 날렸다**(0.28.0 에 이어 두 번째). 이제 `install.sh` 와 `scripts/package.mjs` 가 **ad-hoc 이면 멈춘다**(install 은 종료 코드 2, `ADHOC_OK=1` 로만 우회). 규칙에 기대지 말고 걸림돌을 둘 것.
+- v0.28.0: 녹음기가 켜진 채로 열리지 않던 것(체크는 처음부터 켜져 있는데 장치는 `change` 가 울릴 때만 열렸다 — 이제 녹음 단추를 누를 때 열어 준다), 화면 글꼴 고르기(맑은 고딕·굴림·돋움·Pretendard·Apple SD Gothic Neo)와 글자 크기.
+- v0.27.0: **Pretendard 가변 글꼴을 확장에 내장**(2.0MB, OFL 1.1, 라이선스 전문 동봉). Windows 글꼴 문제 해결.
+- v0.27.0 원인: 글꼴 목록이 `-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif` 였다. Windows 에서는 앞 둘이 없어 **라틴은 Segoe UI, 한글은 맑은 고딕**으로 한 줄 안에서 갈렸고, 맑은 고딕은 굵기가 400·700 둘뿐이라 CSS 의 **font-weight:600 이 11군데**에서 가짜 굵게로 그려져 획이 뭉갰다.
+- v0.27.0 설계: 목록을 `-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard Variable', 'Segoe UI', sans-serif` 로. **맥은 앞에서 걸려 지금 그대로**, Windows 만 Pretendard 로 떨어진다. 가변 글꼴이라 45~920 굵기가 전부 진짜다. 네트워크 없음(확장 안 파일).
+- v0.27.0 적용 범위: panel.css·locked.html·camera.html·recorder.html·print.html. **guard.js(웹페이지 위 잠금 덮개)는 제외** — 글꼴을 쓰려면 web_accessible_resources 를 넓혀야 해서 그대로 system-ui 로 두었다.
+- v0.27.0 미리보기: `dist/윈도우-글꼴-미리보기.html` (글꼴을 base64 로 박은 단일 파일). 왼쪽 칸이 `'Segoe UI','Malgun Gothic'` 이라 **윈도우에서 열어야** 진짜 전후 비교가 된다. 맥에서 열면 왼쪽이 맥 글꼴로 바뀐다.
+- v0.27.0 서명: 빌드가 한 번 ad-hoc 으로 떨어져 설치를 미뤘고 배포본에도 넣지 않았다. 사용자가 allow-signing-key.sh 를 돌리자 고정 인증서로 복구되어 **0.27.0 을 설치하고 배포본도 다시 포장**했다. 확장 안에 든 맥 앱까지 풀어서 서명을 확인했다(Authority=Browser Sheriff Local Signing, verify 통과, 0.27.0).
+- 서명 규칙: **ad-hoc 이 나오면 설치하지도, 배포본에 넣지도 말 것.** 사용자에게 allow-signing-key.sh 를 요청하고 기다린다. 승인은 한동안 유지되다 다시 만료된다.
+- v0.26.0: 녹음기 마이크 고르기, WAV 저장, 발표 탭을 접히는 다섯 묶음으로 재구성(포인터 조정 → 단축키 → 다운로드 → 핀 안내 → 도우미 안내).
+- v0.26.0 WAV: MediaRecorder 는 WebM(Opus) 만 낸다. 브라우저가 이미 가진 디코더로 decodeAudioData 한 뒤 PCM 16비트 WAV 머리글을 직접 써서 다시 만든다(recToWav). 바깥으로 나가는 것 없음. 실제 WebM 으로 확인: 헤더 RIFF/WAVE/fmt/PCM·16bit·2ch·44100, data 크기 = 길이×44100×2×2 와 정확히 일치, 다시 디코드해 440Hz 톤 확인.
+- v0.26.0 주의: 발표 탭을 다시 짤 때 **안에 있는 조작(present-start·present-focus·pin-snip·dim·ring-color·lock-now 등)이 그대로 남아야 한다.** details 로 접어도 DOM 에는 있으므로 showFocus 등은 그대로 동작한다. 재구성 뒤 id 존재를 일일이 확인할 것.
+- v0.26.0: 다섯 묶음 모두 기본 접힘. 하나를 열어 두고 싶으면 shell(...,open_=True) 한 줄.
+- v0.25.0: 멀티 모니터, 앱을 확장 안에 내장, 제작자 표시(다있쌤 로디), 키체인·서명 재점검.
+- v0.25.0 맥 멀티 모니터: start() 에서 '한 화면에 붙는 부분' 을 attach(to:token:) 으로 떼어내고, 커서가 다른 모니터로 가면 followMouse 가 같은 함수를 다시 부른다. **화면마다 따로 잡아야 하므로 스트림을 다시 건다** — 새 캡처가 뜬 뒤에 옛 것을 끊어야 깜빡이지 않는다. 경계에서 떨리지 않게 0.6초 간격을 둔다. 배율·집중 상태는 이어 간다.
+- v0.25.0 **윈도우 멀티 모니터 한계(중요)**: `MagSetFullscreenTransform` 은 **주 모니터만** 키우고 오프셋도 주 모니터 왼쪽 위 기준이다. 처음에 '커서가 있는 모니터 기준' 으로 식을 바꿨다가, 계산으로 확인해 보니 주 모니터에 엉뚱한 자리가 뜨는 식이어서 **되돌렸다**. 지금은 커서가 주 모니터 밖이면 배율을 1로 두고 포인터 원·집중 모드·핀만 그 화면에서 쓴다. 트레이 글씨로 이유를 알린다. **이 API 로는 우회 불가** — 다른 모니터를 확대하려면 Windows 디스플레이 설정에서 주 모니터를 바꿔야 한다.
+- v0.25.0 앱 내장: package.mjs 순서를 **앱 ZIP → 확장 ZIP** 으로 바꿨다(확장 안에 넣으려면 먼저 있어야 한다). 확장 ZIP 안 `presenter/macos.zip`·`presenter/windows.zip` 에 ZIP_STORED 로 넣는다(이미 압축된 것을 또 줄이지 않는다). 사이드바 발표 탭에서 fetch(runtime.getURL) → Blob → download. **새 권한 없음** — downloads 권한도 필요 없다.
+- v0.25.0 주의: 확장 ZIP 이 63MB 가 됐다. Chrome 이 그만큼을 프로필 폴더에 계속 들고 있다. 가볍게 하려면 앱을 빼고 다시 3파일로 주면 된다(포장 순서만 되돌리면 됨).
+- v0.25.0 확인: 확장이 남의 컴퓨터에 프로그램을 **설치할 수는 없다**. 브라우저가 허용하지 않는다. 내려받기까지가 한계이고 실행은 사람이 해야 한다.
+- v0.24.0: 그린 개체 고르기(↖ 도구로 이동·크기·삭제), 글상자 테두리 제거, Windows 글자색 여러 개·배경 투명 흉내, 웹캠 전면 개편(창 크기·카메라/마이크 선택·미리 보고 저장), 탭 줄도 고정, 예시 이름.
+- v0.24.0 서명: 빌드가 한 번 ad-hoc 으로 떨어져 설치를 미뤘다. 사용자가 allow-signing-key.sh 를 돌리자 곧바로 고정 인증서로 복구되어 0.24.0 을 설치했다. **ad-hoc 이 나오면 설치하지 말고 그 스크립트부터 요청할 것** — 설치해 버리면 화면 기록 권한을 다시 받아야 한다.
+- v0.24.0 Windows 글자색 버그: HarvestTints 가 글자마다 editor.Select(i,1) 을 돌리는데, 그 Select 가 서식 글상자의 '이어서 칠 색'을 커서 자리 색으로 되돌린다. 그래서 색을 바꿔도 다음 글자가 옛 색으로 나왔다. pendingInk 로 못박고, 훑는 일은 색을 바꿀 때와 닫을 때만 한다(타건마다 하면 느리고 깜빡인다).
+- v0.24.0 Windows 글상자 배경: WinForms 글상자는 진짜 투명이 되지 않는다. 그 자리 그림의 평균색을 배경으로 써서 묻히게 했다(BackdropAt). 진짜 투명이 아니라는 점을 사용자에게 말해 둘 것.
+- v0.24.0 고르기: markBox / shiftMark / stretchMark 세 개가 모든 종류를 다룬다. 펜은 점 전체, 줄·원·모자이크는 from/to, 글자는 글 덩어리. 모자이크는 옮기거나 늘린 뒤 반드시 조각을 다시 만든다(remakeTile).
+- v0.24.0 주의: 도구가 5 → 6 개(고르기 추가)가 되어 도구 줄이 278px. beginDraw 보장 폭을 270 → **300px** 로 올렸다. **칩을 늘릴 때마다 두 줄 폭을 다시 셀 것.**
+- v0.23.0: 이름을 **다있쌤** 으로(보이는 것만), 글상자에 커서·블록 색칠·지우기 손잡이, 팔레트 7번째 칸에 색 고르개.
+- v0.23.0 교훈(제일 큼): **'고쳤다'는 말은 사용자가 그것을 실행할 수 있을 때만 참이다.** v0.22.0 에서 맥 글쓰기를 다시 만들고 '확인해 보세요' 라고 했는데 /Applications 에는 0.21.1 이 그대로 있었다. 빌드만 하고 install.sh 를 돌리지 않았다. **앞으로 맥 쪽을 고치면 build.sh 다음에 install.sh 까지 돌리고, 설치된 CFBundleShortVersionString 을 눈으로 확인할 것.**
+- v0.23.0 확인법: `defaults read "/Applications/Browser Sheriff Presenter.app/Contents/Info.plist" CFBundleShortVersionString`
+- v0.23.0 이름: 표시 이름만 바꿨다. 그대로 둔 것 — 번들 id(app.browsersheriff.presenter), URL 스킴(browsersheriff), 네이티브 호스트 이름, 레지스트리 키, 확장 key, **.app 파일 이름**, Application Support 폴더 이름(BrowserSheriff). .app 파일 이름은 권한이 갈릴 위험이 있어 일부러 두었다 — 바꾸려면 따로 옮기고 권한을 확인해야 한다.
+- v0.23.0 캡처 이름: 새 파일은 '다있쌤-캡처-/핀-'. 읽는 쪽은 옛 '보완관-' 도 받는다(isShot / Allowed).
+- v0.23.0 색: Mark 에 글자마다의 색(tints/Tints)을 둔다. 맥은 NSAttributedString 한 방에 그리고, Windows 는 GDI+ 가 한 번에 여러 색을 못 쓰므로 색이 같은 토막끼리 묶어 줄·토막 단위로 그린다(PaintText). 글꼴은 textAttrs / TextFace 한 곳에서만 만든다.
+- v0.23.0 주의: 색 칸이 6 → 7 이 되면서 도구 줄이 251px 가 되어 beginDraw 의 250px 보장으로는 ⌫ 가 1px 잘린다. 270px 로 올렸다. **칩을 늘릴 때는 두 줄 폭을 다시 셀 것.**
+- v0.22.0: PIN 최소 4자리, 도크를 sticky 로 고정, **핀 글쓰기를 진짜 글상자로 다시 만듦**(한글 조합·줄바꿈·고쳐쓰기·옮기기·크기).
+- v0.22.0 함정: **keyDown 의 문자를 이어 붙여 글자를 만들면 IME 가 깨진다.** macOS 는 자모를 따로 줘서 '가' 가 'ㄱㅏ' 로 남고(event.characters), Windows 는 조합이 끝나기 전까지 WM_CHAR 를 아예 주지 않아 한 글자도 안 들어간다(OnKeyPress/KeyChar). 두 나라 말 입력은 운영체제의 글상자(NSTextView / TextBox)에 맡기는 것 말고는 답이 없다.
+- v0.22.0 설계: 글상자를 핀 위에 얹고, Mark.From 을 글 덩어리의 왼쪽 아래로 삼는다. 글꼴은 textAttrs / TextFace 한 곳에서만 만든다 — 그리기·자리 재기·글상자 셋이 어긋나면 글상자가 글 위에서 밀린다. 줄이 늘면 왼쪽 위를 고정한 채 아래로 자라고 From 을 다시 계산한다.
+- v0.22.0 주의: 빈 글상자를 닫으면 그 Mark 가 지워져 **뒤 번호가 한 칸 당겨진다.** 닫은 뒤에는 반드시 다시 찾아야 한다(양쪽 다 그렇게 고침).
+- v0.22.0 주의: Windows 는 PinForm.KeyPreview=true 라 폼이 키를 먼저 본다. 글상자가 열려 있으면 반드시 그냥 흘려보내야 Enter 가 줄바꿈이 된다.
+- v0.22.0 이름: 사용자가 새 이름을 고민 중. **표시 이름만 바꾸고 식별자는 그대로 둘 것** — 번들 id(app.browsersheriff.presenter), 네이티브 호스트 이름, 레지스트리 키, 확장 key 를 건드리면 macOS TCC 권한이 초기화되고 Windows 등록이 끊어진다.
+- v0.21.4: Windows 에서 핀 그리기를 켜면 바로 IndexOutOfRangeException. 도구 줄 단추를 문자열 키로 구분하는데 **"cancel" 의 앞글자 c 가 색 칩 "c0"~"c5" 와 같아서**, 그리는 쪽이 앞글자부터 보고 'a'-'0' = 49 를 색 번호로 읽어 Inks[49] 에서 터졌다. 17개 단추 중 딱 이 하나. 이름을 먼저 가리고, 번호 단추는 "c3" 처럼 **두 글자** 라는 점으로 구분하며, 배열 길이도 확인한다.
+- v0.21.4 교훈: **한 글자 접두사로 종류를 나누는 키는 단어 키와 섞어 쓰지 말 것.** macOS 는 같은 도구 줄을 Swift enum(.undo/.done/.cancel)으로 두어 애초에 이런 실수가 불가능했다. C# 으로 옮기며 문자열로 바뀐 것이 화근이다. 포팅할 때 **타입이 지켜 주던 것이 문자열로 바뀌는 자리**를 특히 볼 것.
+- v0.21.4: Windows 포인터 고리 두께 지름의 1/7 → **1/14** (사용자 요청, 맥은 그대로). 얇아진 고리를 테두리 선이 다 덮지 않도록 선 굵기도 min(1.2, 두께*0.3) 으로 함께 줄였다.
+- v0.21.3: Windows 에서 새 실행 파일이 아예 깔리지 않고 있었다. `--install` 의 `File.Copy(...,true)` 가 옛 앱이 떠 있으면 IOException 으로 터지는데 try/catch 가 없어 설치가 거기서 죽었다. 등록만 새로 되고 실행 파일은 옛 것이 남아, 도크를 누르면 명령 통로가 없는 옛 앱이 떠서 "아직 준비되지 않았습니다" 만 나왔다. **분홍 원이 그대로 보인다는 사용자 보고가 결정적 증거였다** — 0.21.x 소스에는 Magenta 가 한 글자도 없다.
+- v0.21.3 교훈: **"고쳤는데 그대로다" 는 먼저 '고친 것이 실제로 설치되었는가' 를 의심할 것.** 화면에 남아 있는 옛 증상(분홍 원)이 곧 버전 지문이다. 이제 상태 파일과 Check.cmd 가 *지금 떠 있는 앱* 의 버전을 알려 주고, 설치 끝 알림도 버전을 적는다.
+- v0.21.3 설치: Replace/StopRunning 추가. 실행 중이면 사용자에게 물어보고(예/아니오) 우리가 설치한 그 경로의 Presenter 프로세스만 내린 뒤 3번까지 재시도한다. 실패해도 절대 죽지 않고 무엇을 하라고 알려 준다.
+- v0.21.3 느린 시작: 명령 파일을 **앱을 띄우기 전에** 적는다. 가상 머신에서 앱이 10초 넘게 걸려도 앱이 시작하며 갓 적힌 명령(30초 이내)을 집어 간다. 중복 실행을 막으려고 TakeCommand 가 먼저 파일을 지운다. 대기도 4초 → 10초, 사이드바 낙관 표시도 7초 → 16초.
+- v0.21.3: **확장 제거 시 로그아웃 기능 삭제(사용자 요청).** setUninstallURL 이 여는 주소로는 Google 계정이 실제로 로그아웃되지 않는다. 되지도 않는 것을 설정에 남겨 두면 지켜 주는 줄 알고 믿게 되므로 UI·설정·검사·문서까지 전부 뺐다. 예전에 등록된 제거 주소와 storage 흔적은 initialize 에서 한 번 비운다.
+- v0.21.3 원칙: **보호해 주지 못하는 기능은 끄는 게 아니라 없앤다.** 꺼진 채 남아 있으면 언젠가 켜고 믿게 된다.
+- v0.21.2: Windows 발표·핀이 그래도 안 되던 원인 — **v0.21.0 에서 내가 넣은 MakeHelp 가 창을 띄우지 않아 핸들이 안 생겼다.** 핸들 없는 Control 은 InvokeRequired 가 false 라, Dispatch 가 사이드바 명령을 UI 스레드가 아니라 스레드풀에서 실행했다. SetWindowsHookEx(저수준 훅)와 Forms 타이머는 부른 스레드의 메시지 루프에 매달리므로 발표가 켜진 척만 하고 아무 일도 안 났다. MakeHelp 에서 help.Handle 을 건드려 강제로 만든다.
+- v0.21.2 교훈: **창을 숨긴 채 UI 스레드 대리자로 쓰려면 핸들을 직접 만들어 줘야 한다.** InvokeRequired 가 false 라고 UI 스레드인 것이 아니다 — 핸들이 없으면 항상 false 다.
+- v0.21.2: 도우미가 ok:false 로 답하면 사이드바가 그 이유를 말하도록 함(예전에는 흘려보내 버튼이 죽은 것처럼 보였다). Windows 에 Check.cmd(--check) 추가 — 설치·등록·확장 번호·앱 실행·**MagInitialize/MagSetFullscreenTransform 실제 호출**을 재어 바탕화면에 보완관-점검.txt 로 남긴다.
+- v0.21.2 갈림길: 가상 머신에서 확대 API 가 막히면 **발표만** 안 되고 핀은 된다. 둘 다 안 되면 확대가 아니라 명령 통로 문제다. Check.cmd 가 이 둘을 갈라 준다.
+- v0.21.1: Windows 발표·핀이 여전히 안 되던 나머지 두 원인. (1) 호스트가 큐를 비우지 않고 끝나 명령이 100% 버려졌다. (2) ready 가 일회성 호출의 답을 가로채 사이드바가 실제 상태를 한 번도 받은 적이 없었다(맥도 마찬가지였다).
+- v0.21.1 함정 A: **chrome.runtime.sendNativeMessage 는 메시지를 쓰자마자 stdin 을 닫고, "첫 번째" 답 하나만 받고 포트를 닫는다.** 그래서 (a) `while(!closed)` 루프는 큐에 든 명령을 처리하기 전에 빠져나간다 — 300ms 를 자고 깨면 늘 닫힌 뒤였다. 20회 재현에 처리 0회. 이제 큐를 비우고 1초 뒤에 끝낸다. (b) 띄우자마자 보내던 `ready` 가 답 자리를 차지해, applyPresenterState 가 늘 presenting/focus 없는 객체를 받았다. `ready` 는 start(오래 열어 두는 클립보드 포트)에만 보낸다.
+- v0.21.1 되짚기: v0.20.0 의 '도우미 0.4초 · 앱 2~3초' 진단은 **틀렸다.** 사이드바는 애초에 상태를 받은 적이 없었고, 낙관적 wish 가 그 빈손을 가려 맥에서 고쳐진 것처럼 보였을 뿐이다. wish 는 그대로 둘 만하지만(앱 준비는 실제로 느리다) 이제는 진짜 상태가 와서 맞물린다.
+- v0.21.1 교훈: **답이 안 오는 게 아니라 엉뚱한 답이 오는 경우를 먼저 의심할 것.** 화면이 안 바뀌면 '늦게 온다'가 아니라 '무엇이 왔는지'를 먼저 찍어 볼 것. sendNativeMessage 를 그대로 흉내 내는 6줄짜리 파이썬으로 5분이면 나왔다.
+- v0.21.0(Windows 7건): 한글 중복 입력 해결, 도크 설명을 도크 위로, 빈 메모는 동기화 제외, Windows 도크 명령 IPC 신설, Windows 포인터 원을 고리로, 60fps 헛돌기 제거, 캡처를 바탕화면 '캡처이미지' 폴더로.
+- v0.21.0 함정 A: **IME 조합 중에 textarea.value 를 다시 쓰면 안 된다.** 같은 값을 써도 Windows IME 는 조합을 끊고 남은 자모를 한 번 더 뱉는다('학ㄱ교에에서서'). 원인은 사이드바가 제 저장을 남의 글로 착각한 것: pendingNotes 는 이 기기만 쓰는데 revision 비교만 하고 editingNote 를 내려 loadNotes 가 글상자를 덮었다. 이제 (1) lastNoteWriter 로 창을 구분, (2) setBox 가 조합 중·포커스 중에는 쓰지 않음, (3) 저장을 350ms 로 모음. 실측: 9타에 value 쓰기 9회 → 0회, 저장 13회 → 1회.
+- v0.21.0 함정 B: **WS_EX_LAYERED 를 단 창은 SetLayeredWindowAttributes 를 한 번은 불러야 보인다.** TransparencyKey 를 걷어내면 창이 통째로 사라진다. PointerWindow 는 Opacity=.9 로 대신한다. 애초에 색 키 투명은 가상 디스플레이(VMware)에서 합성이 빠져 분홍 원이 그대로 칠해지던 원인이었다. 이제 Region 으로 고리를 깎는다 — 드라이버에 기대지 않고 가운데로 클릭도 지나간다.
+- v0.21.0 함정 C: **scripts/package.mjs 는 dist/windows/Presenter.exe 를 그냥 담는다.** 아무도 그걸 다시 만들지 않아 v0.20.0 Windows ZIP 에는 09-19 22:32 빌드가 들어갔다(고친 적 없는 버전이 나간 것). presenter/windows/build.sh 를 새로 만들었고, package.mjs 가 exe 가 Presenter.cs 보다 오래되면 멈춘다.
+- v0.21.0 Windows IPC: macOS 의 DistributedNotificationCenter 에 대응하는 것이 없어 이름 있는 이벤트(Local\\BrowserSheriffPresenterCommand) + %LOCALAPPDATA%\\BrowserSheriff 의 command.json / state.json 으로 짰다. 호스트는 그 이벤트를 열 수 있는지로 앱 생존도 함께 판단한다. --quiet 로 띄우면 도움말 창을 숨기고, 이미 떠 있으면 조용히 물러난다(Activate 를 울리면 누르지도 않은 발표가 시작된다).
+- v0.21.0 자원: UpdateView 가 16ms 타이머와 마우스 훅 양쪽에서 무조건 불려, 마우스를 가만히 둬도 초당 60번 MagSetFullscreenTransform(바탕화면 전체 재합성) + tray.Text 를 했다. 실기기는 GPU 가 받지만 VMware 는 CPU 가 떠안는다. 커서·배율·집중·반지름이 그대로면 건너뛴다.
+- v0.20.0: 발표 버튼이 누른 대로 먼저 움직이고 7초 '뜻' 안에서는 어긋나는 답을 무시(도우미가 0.4초 뒤 답하는데 앱은 2~3초 걸려 스위치가 되돌아가던 문제), 그리기에 '✓ 마침' 넓은 단추, 도크를 열쇠 아이콘 + 24px 로 줄여 260px 에서도 한 줄.
+- v0.20.0 교훈: **비동기 상태를 즉시 되읽어 UI 에 반영하지 말 것.** 도우미 응답은 0.4초, 앱 준비는 2~3초다. 누른 대로 먼저 그리고(wishFor) 뜻이 이뤄지거나 7초가 지날 때까지 어긋나는 답을 흘려보낸다. 다만 끝내 안 되면 정직하게 되돌아가야 한다.
+- v0.19.0: 권한 반복 요구 해결(install.sh 가 지정 요구사항을 signed-as.txt 에 적어 두고 서명이 바뀔 때만 TCC 를 지운다 — 예전에는 임시 서명일 때만 지워서 임시→고정 전환이 새는 구멍이었다), focus-on 에 남아 있던 active 조건 제거, 도크를 두 묶음으로 나눠 좁은 폭에서 잠금 단추가 잘리지 않게.
+- v0.19.0 교훈: **기능을 고칠 때 그 기능을 부르는 자리까지 같이 봐야 한다.** toggleFocus 는 고쳤는데 remoteCommand 의 guard 를 못 봐서 고친 코드가 불릴 일이 없었다. 다음에 조건을 풀 때는 호출 경로를 grep 할 것.
+- v0.18.0: 집중 모드를 단독 실행(발표를 함께 켬), 막는 모달을 쪽지 창(tell/NoticeView)으로 교체, 핀 클릭이 키 창을 만들지 않아 낱개 키가 전부 죽어 있던 것 수정, 클릭 통과를 바깥에서도 켜고 끄기(pins-through).
+- v0.18.0 함정 A: **NSAlert.runModal 은 앱 전체를 멈춘다.** 그 동안 분산 알림(사이드바 명령)도 메뉴도 듣지 않는다. 명령으로 닿는 자리에는 절대 쓰지 말 것. 남은 모달 5개는 클립보드 도우미 등록/해제 메뉴뿐이다.
+- v0.18.0 함정 B: **NSWindow.performDrag(with:) 는 창을 키 창으로 만들지 않는다.** 핀을 눌러도 keyDown 이 오지 않아 t·c·s·1·2·3·0·Space·Esc 가 전부 먹통이었다. mouseDown 에서 makeKeyAndOrderFront 를 먼저 부른다.
+- v0.18.0 주의: 다른 앱 창의 클릭 통과 여부를 NSWindow.windowNumber(at:) 로 재려 하지 말 것. 다른 앱 창은 보이지 않아 늘 0 이 나온다.
+- v0.18.0 서명 해결: codesign 이 키체인 SecurityAgent 승인 창을 띄운다. allow-signing-key.sh 로는 안 풀리고, 빌드 중 그 창에서 사용자가 승인해야 한다. 2026-09-19 승인 완료로 고정 인증서 서명 복구됨. 또 ad-hoc 으로 떨어지면 스크립트 말고 그 창을 찾을 것.
+- v0.17.0: 도크를 탭 위로, 색 칩이 자기 색을 유지(고른 표시는 테두리), 그리기에서 나가는 길을 전부 '남기고 나가기'로, 그리는 중 ⌘/Ctrl 끌기로 이동, 녹음 미리듣기 + 저장 단추, macOS ⌘+휠 화면 배율.
+- v0.17.0 원칙: **애써 만든 것을 한 번에 날리는 길을 두지 말 것.** Esc 가 그림을 버리던 것이 그 예다. 버리기는 별도 단추(⌫)로만 둔다. v0.12.0 의 '갇히게 하지 말 것'과 같은 결이다.
+- v0.17.0 ⌘휠: guard.js 가 metaKey 휠을 가로채 워커에 page-zoom 을 보내고 워커가 ZOOM_STEPS 로 chrome.tabs.setZoom 한다. Mac 전용(Windows 는 Ctrl+휠이 이미 함). 설정 wheelZoom 으로 끈다. 휠은 자주 오므로 메시지만 70ms 로 솎고 preventDefault 는 매번 한다.
+- v0.16.0: 사이드바를 시안 C+A 로 다시 짬(머리말 한 줄 44px, 탭 아래 늘 보이는 도크, 단축키 줄마다 칩·스위치, 설정은 도크 ⚙ 한 곳). 발표 탭 1,806px → 919px. 핀에 그리기 추가(펜·원·밑줄·모자이크·글자, 색 6·굵기 3, ✓ 로 그림에 굽기).
+- v0.16.0 설계: 표시(Mark)는 그림 좌표로 담는다. 화면에 그릴 때도 굽을 때도 paintMarks(in:) 하나를 쓰고 box 만 바꾼다. 굽고 나면 source 가 바뀌어 복사·저장·자르기·회전이 전부 따라온다.
+- v0.16.0 주의: 시작·종료를 하나짜리 토글로 만들지 말 것. 상태를 잘못 읽으면 끄지 못하고 갇힌다. 칩 두 개로 두었다.
+- v0.16.0 해결됨: 키체인이 개인 키 승인을 다시 기다려 ad-hoc 으로 떨어졌다. 사용자가 allow-signing-key.sh 를 실행하니 곧바로 고정 인증서 서명이 복구됐다. 앞으로 같은 증상이 나오면 그 스크립트를 먼저 돌릴 것(로그인 암호를 묻는다).
+- v0.15.0: 발표 프레임 처리 최적화(그려질 부분만 변환 — 1배에서 코어 20%→0%, 4배 19%→2%, 픽셀 동일함을 렌더링 비교로 증명), 전역 단축키를 RegisterEventHotKey 로 옮겨 발표 중이 아니어도 듣게 함, 잠금 옵션을 startLocked/lockOnAway 로 분리, 집중 모드 버튼 비활성 제거, 녹음기를 사이드바 안으로.
+- v0.15.0 핵심 교훈: **LiveView.draw 가 그림을 쓰지 않는 상태(1배·집중 꺼짐)에서도 프레임 핸들러가 변환하고 있었다.** 앞으로 렌더링 조건을 바꾸면 needed() 도 같이 고칠 것. 둘이 어긋나면 화면이 비거나 CPU가 새어 나간다.
+- v0.15.0 검증법: 최상위 실행부만 떼어 낸 Presenter.swift 를 테스트 main 과 함께 컴파일하면 실제 LiveView·Presenter 로 오프스크린 렌더링 비교를 할 수 있다. 렌더링을 건드리면 이 방법을 쓸 것.
+- v0.15.0 주의: 단축키는 이제 Carbon RegisterEventHotKey 다(-framework Carbon 필요). 이벤트 탭에서는 뺐으니 양쪽에 다시 넣지 말 것 — 한 번 눌러도 두 번 실행된다. state.json 의 hotkeys 로 등록 개수를 확인할 수 있다.
+- v0.15.0 남은 최적화: IOSurface 를 CALayer.contents 에 붙이고 contentsRect 로 확대하면 프레임 비용이 0 이 된다(측정함). 렌더링 경로 전체를 바꾸는 일이라 화면을 볼 수 있을 때 할 것.
+- v0.14.0: ① 집중 모드에서 포인터 원 그리지 않음(집중 원과 두 겹이라 지저분했다) ② 핀 모퉁이 잘라내기(⛶·x·오른쪽 클릭 → 네 모퉁이 손잡이 + 삼등분 선 → Return 적용, Esc 는 자르기만 취소) ③ 유틸리티에 녹음기(마이크·시스템 소리를 따로 또는 합쳐 저장, 소리별 크기 조절, 잠시 멈춤).
+- v0.14.0 화질: 핀 회전·자르기를 lockFocus 에서 CoreGraphics(`Pin.turned`·`Pin.cut`)로 바꿨다. lockFocus 는 1배 문맥이라 Retina 조각이 흐려진다. 색칠한 그림으로 위·아래 뒤집힘과 회전 방향, 2배 픽셀 보존까지 검사했다.
+- v0.14.0 녹음기: `extension/recorder.html`·`recorder.js` 신규. WebAudio 로 소리마다 GainNode 를 두고 합칠 때는 MediaStreamDestination 하나로, 따로 저장할 때는 소리마다 하나씩 만든다. Chrome 이 소리만 공유하는 것을 허용하지 않아 getDisplayMedia 의 화면 트랙을 받아 두고 쓰지 않는다(끄면 소리도 끊긴다). macOS 는 Chrome 이 탭 소리만 내준다.
+- v0.14.0 검증 방법: 가짜 장치(440Hz/880Hz 오실레이터)를 끼우고 만들어진 webm 을 decodeAudioData + DFT 로 확인했다. 합친 파일에 두 주파수가 다 있고, 따로 저장한 파일은 각각 하나만 있다. 소리 기능은 이 방법으로 검사할 것.
+- v0.13.0: 화면 조각 핀(Snipaste 의 붙이기). 영역을 잘라 늘 위에 뜨는 카드로 붙이고, 클립보드 그림·글도 붙인다. 핀마다 이동·확대·투명도·회전·뒤집기·접기·클릭 통과·복사·바탕화면 저장, 올려 두면 뜨는 단추와 오른쪽 클릭 메뉴. 사이드바 버튼 4개와 발표 중 단축키 ⌃⌥S/V/D/T. 조사 요약과 채택 범위는 PROJECT 의 '화면 조각 핀' 절.
+- v0.13.0 충돌 방지: 핀·조각 화면은 sharingType=.none 이고 레벨이 발표 오버레이(1000)보다 위(핀 1002 · 조각 1003)다. 조각 내는 동안만 배율 1배·집중 모드 끔. Esc 우선순위는 조각 중 > 고른 핀 > 확대·집중 해제 > 발표 종료. 휠은 발표가 ⌃⌥ 조합만 가로챈다. Windows 는 확대 API 가 화면 전체를 키우므로 핀을 배율만큼 보정해 그린다(PinForm.Place).
+- v0.13.0 함정 1: **NSPanel 의 isFloatingPanel=true 는 창 레벨을 floating(3)으로 되돌린다.** 레벨은 반드시 그 뒤에 정할 것. 이걸 놓치면 핀이 발표 오버레이 아래로 깔려 확대 중에 가려진다. 실제 창 목록으로 잡았다.
+- v0.13.0 함정 2: **실행할 때마다 뜨던 모달 안내 창이 사이드바 명령을 전부 삼키고 있었다.** 모달이 주 실행 루프를 잡으면 분산 알림이 전달되지 않는다. 안내는 첫 실행에만 띄우고(UserDefaults seenHelp) 다음부터는 메뉴 막대에 '준비됨'을 잠깐 표시한다. 이전 버전부터 있던 결함이며 발표 시작·종료가 가끔 안 먹던 증상과 같은 뿌리일 수 있다.
+- v0.13.0 함정 3: 30fps(mac updatePointer)·16ms(Win UpdateView) 타이머가 조각 내는 동안 숨겨 둔 오버레이를 도로 띄운다. 두 곳 다 조각 중에는 빠져나가게 막았다.
+- v0.13.0 주의: 이 환경에서 화면 기록 권한이 없어 CGWindowListCopyWindowInfo 가 **낡은 값을 준다**. 창이 사라졌는지 판단할 때 그 목록을 믿지 말 것. 앱이 스스로 보고하는 값(state.json, NSApp.windows)이 정확했다.
+- v0.13.0 환경: .NET SDK 가 사라져 있어 8.0.425 를 ~/.dotnet 에 다시 설치했다. Windows 빌드는 `export PATH="$HOME/.dotnet:$PATH"` 뒤에 실행할 것.
+- v0.12.0: 발표 시작·종료 버튼을 다시 항상 활성(상태 오독으로 끄지 못하는 회귀 수정), offscreen 소리를 주소 전달 방식으로 바꿔 무음 해결, 시보/타이머 소리 분리, 스톱워치 상태 저장, 팀 포인트 판.
+- v0.12.0 교훈: 사용자를 빠져나오지 못하게 만드는 비활성화는 하지 말 것. 상태 표시는 색으로만.
+- v0.11.0: 유틸리티 탭(스톱워치·타이머·수업 시보·알림 소리·발표자 뽑기·소음 측정기·유튜브 뮤직 조종기·웹캠 창)과 메모 핀. offscreen+alarms+notifications 권한 추가.
+- v0.11.0 주의: 유튜브 뮤직 조종기는 페이지 선택자에 의존한다(controlMusic in background.js). 유튜브가 구조를 바꾸면 깨지므로 그때 선택자를 고칠 것. iframe 삽입은 보호 장치 우회라 하지 않기로 했다.
+- v0.10.1: 앱이 state.json 으로 발표 중·집중 모드 상태를 알리고 도우미가 명령 응답에 실어 준다. 사이드바 버튼이 실제 상태를 따른다(발표 전 집중 모드 비활성).
+- v0.10.0: 시작 잠금 옵션(기본 켜짐). 이전에는 항상 잠갔고 끌 수 없었다. 켜면 절전·화면 잠금 복귀에서도 잠근다. 끄면 keptAuthorized 로 해제 상태가 재시작을 넘어간다.
+- v0.9.0: sendNativeMessage 의 stdin 즉시 닫힘 때문에 호스트가 명령 처리 전에 종료되던 문제 수정(EOF 후 4초 유예, 앱이 떠 있으면 즉시 전달). 해제 전용 창 자동 닫기, 집중 모드 on/off 토글.
+- v0.8.0: PIN 확인 시 5분간 안전 제거(setUninstallURL 비움 + 알람 복구), 잠금 화면과 guard 오버레이에 게스트 창 버튼(도우미 --guest, 없으면 시크릿 창).
+- v0.6.0: make-signing-cert.sh로 고정 자체서명 인증서 도입(재빌드해도 TCC 권한 유지, install.sh가 그때는 reset을 건너뜀), 확장 제거 시 Google 로그아웃 토글(setUninstallURL).
+- v0.5.2: error 4 수정(sharingType .none 때문에 자기 앱이 공유 목록에 없는 것이 정상인데 guard가 실패로 처리했다), 인쇄를 새 탭 print.html로, 메모 버튼 이름·설명 정리.
+- v0.5.0: 북마크에서 PIN 게이트 제거·이름 변경·폴더 도입(평문 marks_<device> 키, 이전 vault_ 데이터는 PIN 한 번으로 이전), 캡처 목록을 본문 바로 아래로 이동.
+- 주의: 북마크가 더 이상 암호화되지 않는다. 사용자 요청이며 화면·README에 명시했다. 되돌리려면 PIN 기반 seal/unseal 경로를 복구해야 한다.
+- v0.4.0: 메모 인쇄(전용 인쇄 영역 + @media print), 캡처 미리보기를 접힌 details에서 상시 표시 구역으로, 가져온 메모로 자동 전환, 중요 북마크에 '지금 보는 페이지 추가'(새 권한 없음), 조사 처리기.
+- v0.3.0 핵심: 캡처는 바탕화면 파일도 감시, 가져오기마다 자동저장N 새 메모, 메모 탭 UI, 빈 이름은 날짜·시각, 포인터는 반투명 원(커서 안 숨김), Esc 두 번으로 발표 종료, Ctrl/⌃⌥+F 집중 모드.
+- v0.3.0 원인 규명: 발표 중 오버레이가 .screenSaver 레벨로 메뉴 막대를 덮어 메뉴 접근이 불가능했다. 그래서 끄기·집중 모드가 '없는' 것처럼 보였다. 키보드 경로와 화면 HUD로 해결.
+- 마지막 담당/갱신: Claude / 2026-09-19(v0.14.0). 이전 GPT / Codex 실행은 종료됨.
+- 경로: /Users/janghwansang/Desktop/ vibe_coging/secret/relay-starter. 먼저 읽기: AGENTS.md → PROJECT.md → 이 파일.
+- Git: 저장소 없음(상위 폴더 포함). 브랜치/HEAD/정상 커밋 기준 없음.
+- 체크포인트: .build/checkpoints/2026-09-18-claude-takeover 에 이번 작업 전 소스 38개 파일 사본. Git 부재 대비 복구용.
+- macOS 권한 반복 원인 확정: dist에 앱이 두 벌(Presenter.app / Presenter 3.app) 있었고 둘 다 실행 중이었다. TCC는 경로별로 기록하므로 권한은 3.app에만 붙어 있었다. 3.app은 휴지통으로 옮기고, 앱에 단일 인스턴스 검사를 추가했으며 presenter/macos/install.sh(신규)로 /Applications에 설치하고 tccutil reset ScreenCapture/Accessibility를 수행했다.
+- 2026-09-19 확인: 고정 인증서 서명이 한동안 임시 서명으로 떨어졌다가(키체인이 개인 키 승인을 다시 기다림) 승인 뒤 복구됐다. 다시 그러면 allow-signing-key.sh 를 한 번 실행하거나 빌드 중 뜨는 키체인 창에서 ‘항상 허용’ 을 누를 것.
+- 해결됨: make-signing-cert.sh로 만든 고정 인증서로 서명하면 지정 요구사항이 인증서에 묶여 재빌드해도 권한이 유지된다. 인증서를 지우면 다시 ad-hoc으로 떨어지고 예전 증상이 돌아온다.
+- 네이티브 호스트: 메뉴 등록만으로는 놓치기 쉬워 install.sh가 매니페스트를 직접 쓰도록 바꿨다. 등록 후 호스트를 Chrome과 동일한 방식으로 직접 실행해 ready/start/stop/경로거부/정상종료까지 확인함. 앱 경로가 바뀌면 재등록 필요.
+- 버전: … → **v0.20.0**. dist/release에는 최신 ZIP만 남는다(package가 옛 ZIP을 지움). 압축해제 폴더는 자동으로 지우지 않으므로 확장은 extension/ 폴더를 로드할 것. manifest·package.json·Info.plist(빌드 2)·csproj에 각각 박았고, 패널 바닥글은 getManifest, Mac 도움말은 Info.plist, Windows 도움말·트레이는 Application.ProductVersion에서 읽는다. 하드코딩 중복 없음.
+- dist 구조 변경: 배포 ZIP은 dist/release/ 로 분리했고 package 실행 시 이전 버전 ZIP을 자동으로 지운다. 원인은 ZIP을 dist에서 그대로 풀면 dist/Browser Sheriff Presenter.app과 이름이 겹쳐 Finder가 '… 2.app'을 만들고, macOS가 그 복사본을 다른 앱으로 보아 권한이 갈리던 것.
+- 구버전 정리 완료(사용자 요청): 0.1~0.3 ZIP과 압축 해제 폴더, 중복 앱을 모두 휴지통으로 옮김. 확장은 dist의 풀린 폴더가 아니라 extension/ 폴더를 Chrome에 로드해야 항상 최신이다.
+- 보존: .build/checkpoints/2026-09-18-claude-takeover (작업 전 소스 사본, Git 부재 대비 유일한 복구 경로). 구버전 정리 대상에서 제외했으며 삭제는 사용자 확인 필요.
+- 신규 파일 4개: extension/locked.html, extension/locked.js, tests/migration.test.mjs, presenter/macos/install.sh. 나머지는 기존 파일 수정이며 crypto.js·아이콘·build.sh·csproj 외 스크립트는 그대로.
+- 정상 기준: npm test 36/36, npm run check 통과(Node 24.14.1). Mac Swift 빌드·Windows .NET 8.0.425 빌드 통과. 자동 검사 한정이며 실기기 통과가 아니다.
+- 변경 1 발표 재캡처: presenter/macos/Presenter.swift. 오버레이 패널을 먼저 띄운 뒤 SCShareableContent 조회, own이 비면 시작 중단, sharingType=.none, 스트림 전 미출력(ready 플래그).
+- 원인 근거: LSUIElement 앱이라 조회 시점에 화면 창이 없으면 own이 빈 배열이 되고, 빈 제외 목록은 오버레이를 재캡처한다. 배율 cap은 원래부터 1~4이며 cap 문제가 아니다.
+- 변경 2 메뉴 막대: 넓은 "보완관 ↗" 글자를 template SF Symbol(plus.magnifyingglass)로 교체. 글자 항목이 붐비는 메뉴 막대에서 밀려나 숨던 문제. 심볼 해석은 별도 스크립트로 확인함.
+- 변경 3 Windows 포인터: presenter/windows/Presenter.cs. MagSetFullscreenTransform이 오버레이까지 확대하므로 포인터를 1/zoom 크기로 그려 화면 크기를 일정하게 유지(PointerWindow.Shrink/Tip).
+- 변경 4 잠금 안내: extension/locked.html·locked.js 신설. DNR을 block에서 extension 잠금 페이지 redirect로 바꾸고 원래 주소를 hash로 넘겨 해제 후 복귀. guard.js도 같은 녹색(#17452f)·같은 문구.
+- 변경 5 사이드바: manifest에서 default_popup을 빼고 side_panel + sidePanel 권한 추가, 아이콘 클릭으로 열리게 setPanelBehavior. panel.css를 고정 420px에서 유동 폭으로.
+- 변경 6 여러 메모: 동기화 키가 note_<device>_<id>로 바뀜. lib/data.js에 noteKey/parseNoteKey/noteGroups/noteList/validateTitle/validateNoteId 추가, 로컬은 draftNotes/pendingNotes.
+- 변경 6 이어서: 삭제는 tombstone을 기록해 다른 기기에도 전달된다. v0.1의 note_<device>와 draftNote/pendingNote는 worker 시작 시 legacy id로 자동 이전한다(migrateNotes).
+- 변경 7 복사 버튼·단축키 모음: 메모 '복사'(clipboardWrite만 추가, execCommand 대체 경로 포함), 발표 탭 제목 아래 단축키 4줄. 잠금 키는 chrome.commands.getAll()로 실제 값을 읽는다.
+- 변경 8 집중 모드: Mac은 다운스케일 재확대로 바깥을 흐리게(흐림 강도 메뉴 3단계), Windows는 화면 픽셀을 얻을 수 없어 어둡게 덮는 방식. 원 크기는 Ctrl+Option/Alt+Shift+휠, Esc는 확대와 집중 모드를 함께 해제.
+- 플랫폼 차이 확인 필요: Windows 집중 모드가 흐림이 아니라 어둡게라는 점을 사용자가 수용하는지. 흐림까지 원하면 Desktop Duplication API 도입이 필요하다.
+- 브라우저 확인(가짜 Chrome API): 잠금 페이지 녹색·복귀 안내, 메모 전환·추가·제목 변경·삭제(tombstone), 330px 폭 가로 넘침 없음, 복사 버튼 성공 경로.
+- 미검증 1: 실제 Chrome 확장 로드. 사이드 패널 열림, DNR redirect 실동작, 복사 내용이 시스템 클립보드에 실제로 도달하는지. 샌드박스 브라우저가 클립보드 읽기와 Cmd+V를 막아 확인 불가.
+- 미검증 2: Mac 발표 실행(화면 기록·손쉬운 사용 권한 필요). 재캡처 반복이 사라졌는지, 집중 모드 흐림과 성능.
+- 미검증 3: Windows 실행 전체. 이 환경에 Windows 런타임이 없다. 빌드만 통과.
+- 확인 방법: dist/Browser Sheriff Presenter.app 실행 → 메뉴 막대 돋보기 아이콘 → 발표 시작 → Control+Option+휠 1~4배 → 반복 없는지 → 집중 모드 → Esc.
+- 확인 방법: chrome://extensions에서 개발자 모드로 extension/ 폴더를 압축해제 로드 → 아이콘 클릭으로 사이드 패널 → 메모 여러 개·복사 → 잠근 뒤 북마크 이동.
+- 정리함: dist의 "Browser Sheriff Presenter 2.app"은 사용자 승인으로 휴지통에 옮김. 실행 중이던 그 복사본은 osascript quit으로 정상 종료함.
+- 사용자 확정: 이미지는 로컬 전용·동기화 안 함, 기본 저장 위치는 바탕화면, 네이티브 도우미가 직접 저장.
+- 사용자 확정: 메모 이미지는 바탕화면 PNG + 확장 안 사본 둘 다. 단 1MB 메시지 한도 때문에 확장 사본을 썸네일로 좁히는 안을 PROJECT에 적어 두었고 확인이 필요하다.
+- 다음 행동 1: 위 미검증 1~3을 사용자가 실기기에서 확인. 문제가 나오면 새 기능을 멈추고 해당 변경만 조사한다.
+- 변경 9 네이티브 도우미: 발표 도우미 실행 파일이 Chrome native host로도 동작한다(GUI 없이 클립보드 감시). manifest에 nativeMessaging 추가, Mac은 메뉴 '클립보드 도우미 → 등록', Windows는 Install.cmd가 레지스트리에 등록한다.
+- 변경 9 이어서: 복사한 글은 활성 메모 끝에 붙고, 캡처는 바탕화면 PNG로 저장한 뒤 240px 썸네일만 storage.local에 남는다(메모당 12장·전체 40장). 이미지 복사는 도우미에 copy-file을 요청한다. 도우미는 바탕화면의 보완관-캡처-*.png만 읽는다.
+- 다음 행동 2: 네이티브 메시징 실동작 확인. 호스트 등록 → Chrome 재시작 → 토글 → 실제 복사/캡처 → 바탕화면 파일 → 되돌려 복사. 흉내 낸 포트로만 검사했다.
+- 재검사 금지: 새 근거 없이 npm test/check를 반복하지 말 것. 이번 변경분은 위 검증으로 확인했다.
+- 도구 메모: 이 기기에 .NET SDK가 없어 공식 스크립트로 세션 스크래치 경로에 8.0.425를 설치해 빌드했다. 세션이 끝나면 사라지므로 다음에 다시 설치해야 한다.
+- 범위: 자체 서버·분석 없음, 동기화 지연 측정 제외. 이전 앱 배포 대상·승인 재사용 금지, 공개 게시 승인 없음.
+- 알려진 경고/제한: Intel Swift SDK compatibility archive 링크 경고, Windows 기본 모니터만, PIN 변경/분실 복구 미지원, Chrome 내부 화면은 보호 범위 밖.
+- 산출물: dist/ 확장·Mac·Windows ZIP과 SHA256SUMS를 이번 변경으로 재생성. README.md도 사이드 패널·여러 메모·복사·집중 모드에 맞춰 갱신.
+- 상세 검사 이력: docs/ai/VALIDATION.md. 설치 README.md, 개인정보 PRIVACY.md.
+- 미커밋/미추적: Git 미구성으로 분류 불가. 전 파일이 로컬 전용 상태.
+- 첨부 근거(사용자 화면의 포인터·화면 경계 반복, 임시 파일이라 만료 가능): /var/folders/5h/5ty3nd412y51sx_qzvcg8kzh0000gn/T/codex-clipboard-779a83cb-f0d6-4341-8b81-16183caa807e.png

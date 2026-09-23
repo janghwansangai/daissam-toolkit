@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>다있쌤 도크</title>
+<style>
+@font-face{font-family:'Pretendard Variable';src:url(fonts/PretendardVariable.woff2) format('woff2');font-weight:45 920;font-display:swap}
+:root{--ink:#173b36;--lime:#dff39c;color-scheme:light}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+/* 창에는 단추 줄 하나만 둔다. 자리는 사용자가 제목 표시줄을 끌어 옮긴다. */
+html,body{height:100%;margin:0;overflow:hidden}
+body{background:var(--ink);color:#f6f9e9;font:13px/1.4 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard Variable','Segoe UI',sans-serif;display:flex;align-items:center}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.bar{display:flex;align-items:center;gap:3px;padding:0 8px;width:100%}
+.btn{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.12);color:var(--lime);display:grid;place-items:center;font-size:12px;flex:none}
+.btn:hover{background:rgba(255,255,255,.26)}
+.btn.on{background:var(--lime);color:var(--ink);font-weight:700}
+.btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.gap{width:1px;height:20px;background:rgba(255,255,255,.18);margin:0 4px}
+.spot{margin-left:auto;display:flex;gap:3px;align-items:center}
+/* 알림은 단추 줄 위에 잠깐만 겹쳐 뜬다(줄을 하나 더 만들지 않는다). */
+#tip{position:fixed;left:8px;right:8px;bottom:3px;font-size:10.5px;color:#cfe0bd;background:rgba(10,25,20,.92);border-radius:6px;padding:2px 6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="bar" role="toolbar" aria-label="빠른 조작">
+  <button class="btn" id="d-present" data-tip="발표 시작">▶</button>
+  <button class="btn" id="d-stop" data-tip="발표 종료">■</button>
+  <button class="btn" id="d-focus" data-tip="집중 모드 켜기 · 끄기">◉</button>
+  <span class="gap"></span>
+  <button class="btn" id="d-snip" data-tip="화면 조각 잘라 붙이기">⛶</button>
+  <button class="btn" id="d-clip" data-tip="클립보드를 화면에 붙이기">⧉</button>
+  <button class="btn" id="d-through" data-tip="핀 클릭 통과 켜기 · 끄기">◌</button>
+  <button class="btn" id="d-pins" data-tip="핀 모두 닫기">⨯</button>
+  <span class="gap"></span>
+  <button class="btn" id="d-area" data-tip="화면에서 끌어 고르기 → 캡처이미지 폴더 저장 + 복사 (다른 앱·다른 모니터도 됩니다)"><svg viewBox="0 0 16 16"><path d="M4.5 1.8v9.7h9.7"/><path d="M1.8 4.5h9.7v9.7"/></svg></button>
+  <button class="btn" id="d-full" data-tip="스크롤 캡처(브라우저 전체 페이지) → 저장 + 복사"><svg viewBox="0 0 16 16"><rect x="3.2" y="1.8" width="7.6" height="12.4" rx="1.4"/><path d="M13.6 5.5v6m-1.5-1.5 1.5 1.5 1.5-1.5"/></svg></button>
+  <span class="spot">
+    <button class="btn" id="d-panel" data-tip="사이드바 다시 열기">☰</button>
+    <button class="btn" id="d-close" data-tip="도크 창 닫기">✕</button>
+  </span>
+</div>
+<div id="tip" hidden></div>
+<script type="module" src="dock.js"></script>
+</body>
+</html>

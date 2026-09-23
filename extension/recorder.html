@@ -1,0 +1,82 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>녹음기</title><style>
+/* Windows 에는 맥의 시스템 글꼴이 없어서, 라틴 글자는 Segoe UI·한글은 맑은 고딕으로
+   따로 떨어져 한 줄 안에서 두 글꼴이 섞였다. 게다가 맑은 고딕은 굵기가 400·700 둘뿐이라
+   CSS 의 600 을 브라우저가 흉내 내 그리면서 획이 뭉갰다. 그래서 Windows 에서만 흐릿했다.
+   Pretendard(OFL 1.1) 를 함께 담아 Windows 에서는 이 글꼴 하나로 그린다. 가변 글꼴이라
+   45~920 사이 굵기가 모두 진짜다. 인터넷에서 받아오지 않고 확장 안의 파일을 쓴다. */
+@font-face{font-family:'Pretendard Variable';font-style:normal;font-weight:45 920;font-display:swap;
+  src:url('fonts/PretendardVariable.woff2') format('woff2-variations')}
+
+:root{color-scheme:light}*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#fafbf5;color:#173b36;font:14px/1.6 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard Variable','Segoe UI',sans-serif}
+h1{font-size:17px;letter-spacing:-.5px;margin:0 0 4px}
+.clock{font:800 40px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:-1px;text-align:center;padding:10px 0 4px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:#cdd6c6;margin-right:9px;vertical-align:middle}
+.dot.on{background:#ad493b;animation:beat 1s ease-in-out infinite}
+@keyframes beat{50%{opacity:.25}}
+.src{border:1px solid #e3e6db;border-radius:12px;padding:12px 14px;margin:10px 0;background:white}
+.src.off{opacity:.55}
+.src-head{display:flex;align-items:center;gap:9px;font-weight:700;font-size:13px}
+.src-head input{width:auto;margin:0}
+.meter{height:11px;background:#e8ece1;border-radius:6px;overflow:hidden;margin-top:9px}
+.meter i{display:block;height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#9fc46b,#e0c15a 65%,#c4664f);transition:width .08s linear}
+label.knob{display:block;font-size:11px;font-weight:600;color:#5d6b5f;margin:10px 0 0}
+label.knob output{float:right;font-weight:400;color:#7d8877}
+input[type=range]{width:100%;margin:5px 0 0;padding:0}
+.row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+button{font:inherit;border:0;border-radius:10px;padding:12px 17px;cursor:pointer;background:#e8eddf;color:#173b36}
+button.primary{background:#173b36;color:#f6f9e9;font-weight:700}
+button.rec{background:#ad493b;color:white;font-weight:700}
+button:disabled{opacity:.45;cursor:not-allowed}
+fieldset{border:1px solid #e3e6db;border-radius:12px;margin:14px 0 0;padding:10px 14px 14px}
+legend{font-size:11px;font-weight:700;color:#5d6b5f;padding:0 5px}
+fieldset label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;margin:7px 0}
+fieldset input{width:auto;margin:0}
+p{font-size:12px;color:#69766c;line-height:1.85}
+#state{font-weight:700;font-size:13px;color:#173b36;text-align:center;margin:2px 0 0}
+#takes{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.take{border:1px solid #d9e2ce;background:#fbfdf4;border-radius:11px;padding:10px 12px}
+.take-head{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700}
+.take-head span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.take-head button{flex:none;font-size:11px;padding:7px 12px}
+.take-head button.keep{background:#173b36;color:#f6f9e9}
+.take-head button.kept{background:#c9dca6;color:#2d4a26}
+.take audio{width:100%;height:34px;margin-top:9px;display:block}
+.warn{background:#fce8dc;color:#873c2e;border-radius:10px;padding:11px 13px;font-size:12px;margin-top:12px}
+.warn:empty{display:none}
+</style></head><body>
+<h1>녹음기</h1>
+<p>마이크와 시스템 소리를 따로 또는 함께 녹음합니다.</p>
+
+<div class="clock"><span class="dot" id="dot"></span><span id="clock">00:00</span></div>
+<p id="state">꺼짐</p>
+
+<div class="src off" id="box-mic">
+  <div class="src-head"><input type="checkbox" id="use-mic" checked><label for="use-mic">마이크</label><span id="mic-name" style="font-weight:400;font-size:11px;color:#7d8877;margin-left:auto"></span></div>
+  <div class="meter"><i id="mic-bar"></i></div>
+  <label class="knob">섞을 때 크기 <output id="mic-vol-out">100%</output><input id="mic-vol" type="range" min="0" max="150" step="5" value="100"></label>
+</div>
+
+<div class="src off" id="box-sys">
+  <div class="src-head"><input type="checkbox" id="use-sys"><label for="use-sys">시스템 · 탭 소리</label></div>
+  <div class="meter"><i id="sys-bar"></i></div>
+  <label class="knob">섞을 때 크기 <output id="sys-vol-out">100%</output><input id="sys-vol" type="range" min="0" max="150" step="5" value="100"></label>
+</div>
+
+<fieldset><legend>저장 방식</legend>
+  <label><input type="radio" name="mix" value="together" checked>한 파일로 합쳐서 저장</label>
+  <label><input type="radio" name="mix" value="apart">소리마다 따로 저장</label>
+</fieldset>
+
+<div class="row">
+  <button id="go" class="rec" type="button">녹음 시작</button>
+  <button id="hold" type="button" disabled>잠시 멈춤</button>
+  <button id="stop" class="primary" type="button" disabled>끝내고 저장</button>
+</div>
+
+<div class="warn" id="warn"></div>
+<div id="takes"></div>
+
+<p><b>시스템 소리는 운영체제마다 다릅니다.</b> ‘시스템 · 탭 소리’를 켜면 공유할 대상을 고르는 창이 뜹니다. 거기서 <b>소리 공유</b>를 반드시 켜 주세요. Windows는 <b>화면 전체</b>를 고르면 컴퓨터 소리 전체가, <b>탭</b>을 고르면 그 탭 소리만 들어옵니다. macOS는 Chrome이 <b>탭 소리만</b> 내줍니다(화면 전체 소리는 Chrome이 제공하지 않습니다).</p>
+<p>녹음을 끝내면 <b>바로 들어 볼 수 있고</b>, <b>저장</b>을 눌러야 파일로 내려받습니다. 어디로도 보내지 않고 확장 안에도 남기지 않습니다. <b>아직 저장하지 않은 녹음이 있을 때 이 창을 닫으면 사라집니다.</b></p>
+<script src="recorder.js"></script></body></html>

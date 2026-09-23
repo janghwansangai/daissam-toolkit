@@ -1,0 +1,122 @@
+# 프로젝트 기준 정보
+
+- 앱: 브라우저 보완관. 담당 이력 GPT / Codex → Claude(2026-09-18 인계 완료, 편집자 1명 유지).
+- 목적: 타인이 내 Chrome 프로필에 실수로 들어온 뒤 계속 사용하는 것을 방지. 고의적 우회·확장 삭제 방지는 범위 밖.
+- 추가 기능: 기기 간 빠른 메모, 별도 PIN 중요 북마크, 바탕화면·다른 앱을 포함하는 실시간 발표 확대와 큰 포인터.
+- 현재 범위: v0.1 구현·로컬 검사·설치 패키지 작성 후 사용자 피드백 수신. 최신 지시: 수정 전에 수정안을 사용자에게 검토받기. 아래 추가 요구는 미구현이며 전체 수정안 최종 승인 전. 공개 게시·서명 계정·이전 앱 배포 대상은 승계하지 않음.
+- 플랫폼: 확장 Chrome 120+ (Mac/Windows), 발표 앱 macOS 13+ arm64/Intel 및 Windows 10/11 x64. 실제 지원 완료 여부는 VALIDATION 참조.
+- Git: 저장소 없음, 원격/브랜치/HEAD/검증된 정상 커밋 없음. 기존 규칙 파일 보존.
+
+## 구현 구조
+- `extension/`: 순수 JavaScript/HTML/CSS, Manifest V3, 외부 라이브러리 없음.
+- 프로필: 로컬 PIN 검증값, session 해제 상태, 수동·시작·유휴 잠금. content script가 기존 페이지 입력 차단, declarativeNetRequest가 잠금 중 새 HTTP(S) 최상위 탐색 차단.
+- `scripting` 권한으로 설치 전 열린 탭에도 guard 주입. 중복 주입·확장 업데이트의 stale DOM 정리, 상태 revision으로 오래된 해제 응답 무시, 키보드 PIN 버튼 포커스/Tab 이동.
+- 메모: 로컬 우선 저장, 실패 사본 보존, 기기별 Chrome Sync 사본. 동시에 바뀐 타 기기 내용을 조용히 덮어쓰지 않고 사본 선택 제공.
+- 중요 북마크: 일반 Chrome 북마크와 별도. 제목·URL을 AES-256-GCM으로 암호화, PBKDF2-SHA256 600,000회, 랜덤 salt/nonce. PIN 원문/해제 상태는 동기화하지 않음.
+- 북마크 병합: 기기별 암호화 스냅샷, 항목별 논리 revision+writer 정렬, 삭제 tombstone 유지. 같은 기기 여러 패널의 쓰기는 worker CAS로 충돌 거부.
+- `presenter/macos/`: Swift/AppKit/ScreenCaptureKit. 자기 앱을 제외하도록 설계한 라이브 화면(실제 제외 실패 의심 버그 접수), 마우스 기준 확대, 큰 포인터, 메뉴 막대 앱. 주 디스플레이가 아니어도 마우스가 있는 화면에서 시작 가능.
+- `presenter/windows/`: C#/Windows Forms/Magnification API. 기본 디스플레이 대상, 64비트 EXE, URL 실행/단일 인스턴스 이벤트 IPC, 종료·절전·세션 잠금 시 배율/커서 복원.
+- 연결: `browsersheriff://presenter` 로컬 앱 주소. 네트워크 서버·자체 회원가입·분석 수집 없음.
+
+## 사용자 확정 사항
+- Chrome Sync 사용으로 확정. 별도 백엔드·자체 인증 서버 없음. Google 동기화 서버는 이용하며 P2P가 아님.
+- 같은 Google 계정, Chrome 동기화 활성화, 동일 확장 ID 필요. 개발용 ID `ehgodopakibamgeopmelemjmjdjhbdgm`은 manifest 공개 키로 고정.
+- 실제 지연 측정/벤치마크는 제외. 반영 시간 보장 없음. 데이터 전달·보존·충돌 기능 검증은 유지.
+- Chrome Sync 약 100KB 전체/8KB 항목 제한을 공유. 메모 5,500 UTF-8 바이트까지만 동기화하며 초과 메모는 로컬 보존 후 내보내기 안내.
+- PIN 북마크와 프로필 PIN은 별도이며 각각 기기 재진입/보관함 열람에 사용. 짧은 PIN을 강한 보안 금고로 표현하지 않음.
+- 기존 게스트/프로필 선택 방법은 사용 중. OS 계정 전환을 주 해결책으로 다시 제안하지 않음.
+- 발표는 전체 화면 라이브 확대. 웹페이지 확대·정지 스크린샷으로 대체하지 않음.
+
+## 2026-09-18 사용자 피드백과 다음 수정안 (미구현)
+- 사용자 요구: 발표 포인터의 그림자·중복·잔상 제거, 끝없이 확대되는 현상 수정, 포인터 크기와 화면 배율 분리. 전체 화면 실시간 동작과 Mac/Windows 지원 유지.
+- 사용자 화면에는 포인터와 화면 경계가 반복됨. 오버레이 재캡처가 유력한 가설이며 실기기 원인은 아직 확정하지 않음. 코드에 이미 1~4배 제한이 있으므로 제한값만 바꿔 해결했다고 하지 말 것.
+- Mac 조사 위치: presenter/macos/Presenter.swift. 오버레이 창 생성 전에 SCShareableContent에서 own application을 조회해 제외함. 실제 앱/창 제외 여부 확인 및 실패 처리 필요.
+- Mac 코드 근거(2026-09-18 Claude, 실기기 미검증): start()가 NSPanel 생성보다 먼저 콘텐츠를 조회한다. 메뉴 막대 앱이라 조회 시점에 화면 창이 없으면 applications 목록에 자기 앱이 없어 own이 빈 배열이 되고, 빈 제외 목록은 오버레이를 그대로 캡처해 화면·포인터 반복을 만든다. 조회 결과가 비었을 때의 처리도 없다.
+- Mac 수정 적용(2026-09-18 Claude, 승인 후): 패널을 먼저 만들어 화면에 올린 뒤 SCShareableContent를 조회하고, own이 비면 시작을 중단해 안내한다. NSWindow.sharingType=.none을 함께 걸어 이중으로 막고, 스트림이 살아나기 전에는 오버레이가 아무것도 그리지 않도록 LiveView.ready를 추가했다. pointerSize는 원래부터 scale과 분리돼 있어 건드리지 않았다. 빌드 통과, 실기기 확인 대기.
+- Windows 조사 위치: presenter/windows/Presenter.cs. 전체 화면 Magnification API와 별도 PointerWindow 사용. 포인터 확대 분리 및 집중 모드는 OS별 설계·실행 검증 필요.
+- Windows 코드 근거(2026-09-18 Claude, 실기기 미검증): MagSetFullscreenTransform은 데스크톱 전체를 변환하므로 최상위 PointerWindow도 같은 배율로 확대된다. UpdateView는 포인터를 확대 전 좌표계 크기로만 그려 분리가 성립하지 않는다. 재캡처 루프는 없으며 Mac과 원인이 다르다.
+- Windows 수정 방향(승인 전): 목표 화면 크기 D에 대해 포인터를 D/zoom 크기로 그려 확대 후 D가 되게 보정한다. 고배율에서 선명도가 떨어지므로 대안 포함해 사용자 확인 필요. 이 환경에 Windows 런타임이 없어 실행 검증 불가.
+- 사용자 요구: 잠금 중 북마크 이동도 모두 녹색 화면에 “환상의 나라입니다. 다른 프로필로 로그인하세요.” 표시. 원인: background.js DNR block은 새 탐색에 Chrome 차단 화면을 내고 guard.js는 기존 페이지에 안내 표시.
+- 제안: 새 HTTP(S) 최상위 탐색을 확장 전용 잠금 페이지로 redirect하고 기존 페이지 guard는 입력 내용 보존. Chrome 내부 페이지까지 통일한다고 약속하지 말 것.
+- 사용자 요구: 여러 개의 독립 메모. 제안: 제목 목록·추가·이름 변경·삭제·자동 저장, 기존 내용 보존 마이그레이션, 기기 간 충돌 사본 보존. 현재 per-device 단일 메모 구조와 Sync 한도 검토 필요.
+- 사용자 요구: 오른쪽 사이드바 사용. 제안: Chrome sidePanel 기본 UI, 아이콘 클릭으로 열기. 좌우 위치는 사용자 Chrome 설정을 따름; 확장에서 오른쪽 강제 불가.
+- 사용자 요구: 포인터 주변 원 안은 선명하고 바깥은 흐린 집중 모드. 제안: 원 크기/흐림 강도 조절, 라이브 확대와 병용, 클릭 통과, Esc로 효과 해제.
+- 전체 데스크톱 발표에는 별도 앱이 필요하며 메모·북마크·잠금만 쓰는 경우는 필요 없다고 설명함.
+- 사용자 확정: 삭제 시 이메일 발송 기능은 보류. 외부 발송 서비스/서버를 추가하지 말 것.
+- 사용자 확정: 다른 앱에서 복사·캡처하는 순간 메모로 자동 가져오기. 수동 붙여넣기가 아닌 방식이며 메모장 바로 위에 켜기/끄기 토글 배치.
+- 자동 가져오기 제안: 기본 OFF, 켠 이후 새 클립보드 내용만 수집, 현재 메모에 텍스트/이미지 추가, OFF 또는 프로필 잠금 시 중단, 작동 중 표시 및 도우미 연결 안내. 파일로만 저장된 캡처는 제외.
+- 자동 가져오기 구현은 아직 없음. 현재 URL 실행 연결은 단방향이므로 네이티브 도우미와 확장 간 안전한 데이터 전달 방식 및 설치 절차를 별도로 설계해야 함. 기존 발표 실행 연결로 클립보드 데이터까지 전달된다고 가정하지 말 것.
+- 사용자 확정(2026-09-18 추가 2): 이미지는 로컬 전용 보관이며 동기화하지 않는다. 텍스트만 Chrome Sync를 쓴다. 이전에 미승인으로 남아 있던 조건이 확정됨. 클립보드에 민감한 텍스트가 들어올 수 있다는 점은 설명했음.
+- 사용자 확정(2026-09-18 추가 3): 이미지 기본 저장 장소는 바탕화면.
+- 사용자 확정(2026-09-18 확인): 바탕화면 저장은 네이티브 도우미 앱이 담당한다. 확장↔앱 양방향 연결과 설치 절차가 늘어나는 것을 수용함.
+- 사용자 확정(2026-09-18 확인): 메모 이미지는 바탕화면 PNG 파일과 확장 안 사본(IndexedDB)을 함께 둔다. 복사 버튼으로 이미지까지 Ctrl+V 가능. 사본도 동기화하지 않으며 기기 저장 공간을 더 쓰는 것을 수용함.
+- 사용자 확정(2026-09-18 확인): 단축키는 모음 섹션을 신설해 발표 탭 위쪽에 둔다. 발표 확대·축소/Esc에 더해 프로필 잠금 Ctrl/Cmd+Shift+L과 발표 시작·종료 방법(메뉴 막대·트레이 아이콘)을 포함한다.
+- 단축키 모음 적용(2026-09-18 Claude): 발표 탭 제목 바로 아래에 테두리 있는 '단축키' 묶음을 만들고 네 줄(프로필 잠그기 / 발표 시작·종료 / 발표 확대·축소 / 발표 확대 종료)을 넣었다. 잠금 키는 chrome.commands.getAll()로 실제 지정된 값을 읽어 사용자가 Chrome에서 바꾼 경우에도 틀리지 않게 했고, 읽기 실패 시에만 플랫폼 기본값을 보여 준다. 시작·종료 안내 문구는 Mac/Windows를 구분하며 chrome://extensions/shortcuts로 가는 버튼을 함께 뒀다.
+- 사용자 확정(2026-09-18 확인): 착수 순서는 발표 재캡처 버그부터.
+- 제약(설계 전제): 확장은 바탕화면에 파일을 쓸 수 없다. chrome.downloads는 다운로드 폴더 하위로만 저장하며 절대경로/상위경로를 거부한다. 바탕화면 저장은 네이티브 도우미 앱이 쓰거나, 사용자가 Chrome 다운로드 위치를 바꾸거나, 매번 저장 위치 선택창을 쓰는 방법뿐이다.
+- 제약: 확장은 백그라운드에서 시스템 클립보드를 읽을 수 없다(클립보드 변경 이벤트 없음, 읽기는 포커스/사용자 동작 필요). 자동 가져오기는 네이티브 도우미가 필수이며, 도우미가 이미지를 바탕화면에 저장하는 설계가 추가 3과 맞물린다.
+- 미확정: 메모 안 이미지 보관 방식. 바탕화면 파일과 별도로 확장 안(IndexedDB 등)에 사본을 둘지, 파일 경로/썸네일만 둘지에 따라 복사 버튼의 이미지 Ctrl+V 가능 여부가 갈린다.
+- 사용자 요구(2026-09-18 추가 4): 확장 안에 발표 도우미 단축키 설명 위치 추가.
+- 단축키 현황 확인: 발표 탭에는 이미 '확대·축소 = Control + Option/Alt + 휠', '확대 종료 = Esc' 두 줄이 있고 코드와 일치한다(Presenter.swift installTap, Presenter.cs MouseHook/KeyHook). 없는 것은 프로필 잠금 Ctrl/Cmd+Shift+L 안내와 발표 시작·종료 방법이며, 기존 두 줄은 발표 탭 아래쪽이라 눈에 잘 띄지 않는다.
+- 사용자 요구(2026-09-18 추가 1): 메모장에 복사 버튼. 현재 메모와 캡처된 이미지를 시스템 클립보드에 올려 다른 앱에서 Ctrl+V로 붙여넣기. 자동 가져오기(들여오기)와 반대 방향이다.
+- 복사 버튼 코드 상태: 확장 어디에도 클립보드 코드 없음. manifest 권한에 clipboardWrite 없음. 메모 저장 경로는 문자열만 받으므로(background.js note-save, lib/data.js NOTE_BYTES=5500) 이미지가 들어갈 자리가 현재 없음.
+- 복사 버튼 적용(2026-09-18 Claude): 메모 하단 저장 옆에 '복사' 추가. navigator.clipboard.writeText가 거부되면 임시 textarea + document.execCommand('copy')로 재시도하고, 둘 다 실패하면 텍스트 내보내기를 안내한다. manifest에 clipboardWrite만 추가했고 clipboardRead는 넣지 않았다. 이미지 복사는 아직 없음.
+- 이미지 복사 제안: 메모에 이미지가 저장된 뒤에만 가능하므로 자동 가져오기 작업에 의존. 구현 시 ClipboardItem에 text/plain과 image/png를 함께 싣고, 본문+이미지를 함께 붙여넣어야 하면 text/html에 data: URI를 넣는다. Chrome 클립보드 쓰기는 PNG만 지원. 이미지 로컬 보관 전제는 사용자 명시 승인 전.
+- 여러 메모 작업과의 관계: 여러 메모가 생기면 복사 버튼의 대상은 선택된 메모가 된다. 두 작업의 UI 순서를 함께 정할 것.
+- 진행 상황(2026-09-18 Claude): 발표 재캡처, 메뉴 막대 아이콘, Windows 포인터 배율 분리, 잠금 안내 통일, 사이드바, 여러 메모, 메모 복사 버튼, 단축키 모음, 집중 모드까지 구현·빌드·자동 검사 완료. 실기기 검증은 전부 미완.
+- 남은 것: 클립보드 자동 가져오기와 바탕화면 이미지 저장, 메모 이미지 복사. 아래 설계안대로 착수 전 사용자 확인이 필요하다.
+
+## 네이티브 도우미 (2026-09-18 Claude 구현, 실기기 미검증)
+- 배경: 확장은 백그라운드에서 시스템 클립보드를 읽을 수 없고 바탕화면에도 쓸 수 없다. 두 기능 모두 발표 도우미 앱에 얹는다.
+- 연결: 지금의 `browsersheriff://` URL 실행은 단방향이라 쓸 수 없다. Chrome Native Messaging으로 바꾼다. manifest에 `nativeMessaging` 권한을 추가하고 확장이 `chrome.runtime.connectNative`로 포트를 연다.
+- 호스트 등록: 호스트 이름 `app.browsersheriff.presenter`, `allowed_origins`에 확장 ID만 넣는다. Mac은 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/<이름>.json`, Windows는 `HKCU\Software\Google\Chrome\NativeMessagingHosts\<이름>` 레지스트리. 기존 Install/Uninstall 스크립트에 등록·해제를 넣는다.
+- 클립보드 감시: Mac은 NSPasteboard.general.changeCount를 0.5초 간격으로 확인, Windows는 AddClipboardFormatListener의 WM_CLIPBOARDUPDATE. 토글을 켠 시점의 changeCount를 기준선으로 잡아 그 이후 것만 수집한다.
+- 이미지 저장: 앱이 바탕화면에 `보완관-캡처-YYYYMMDD-HHMMSS.png`로 저장한다. 확장에는 파일 경로와 작은 썸네일만 보낸다.
+- 사용자 확정(2026-09-18): 확장 안 사본은 썸네일까지만, 복사 버튼은 앱에 "이 파일을 클립보드에 올려라"를 요청하는 방식으로 확정. 1MB 메시지 한도 때문이다.
+- 구현: 발표 도우미 실행 파일이 Chrome에 의해 native host로 실행되면 GUI 없이 클립보드만 감시한다. 포트가 닫히면 프로세스가 끝나므로 토글이 곧 수명이다.
+- 구현: 썸네일은 240px로 줄여 chrome.storage.local에 담고, 메모당 12장·전체 40장 상한으로 오래된 것부터 뺀다. 동기화하지 않는다.
+- 구현: 도우미는 바탕화면의 `보완관-캡처-*.png`만 다시 읽도록 경로를 검사한다. 확장이 임의 파일을 열도록 요청할 수 없다.
+- 구현: 프로필 잠금 시 포트를 끊고, 도우미가 없으면 토글을 자동으로 끄고 안내한다. 메모가 5,500바이트를 넘게 되면 붙이지 않고 새 메모를 만들라고 안내한다.
+- 안전장치: 기본 OFF, 토글은 메모장 바로 위, 작동 중 표시, 프로필 잠금 시 포트 종료. 클립보드에 비밀번호 같은 민감한 텍스트가 들어올 수 있다는 경고를 토글 옆에 둔다. 파일로만 저장되는 캡처는 클립보드에 오르지 않으므로 제외한다.
+- 저장 공간: 바탕화면 파일과 썸네일이 쌓이므로 보관 개수 상한과 정리 화면이 필요하다. 상한값은 사용자 확인 필요. 기존의 구현 계속 지시보다 최신 사전 검토 지시를 우선.
+
+## 완료 조건과 제한
+- 프로필: 수동 잠금 → 기존 창 재진입에서 입력 제한 → 틀린 PIN 유지 → 올바른 PIN 사용 재개, 기존 입력 내용 보존.
+- 메모: 작성·저장·타 기기 수신, 충돌 사본 보존·오프라인 재접속 후 재시도. 실제 Google 계정 간 수신은 미검증.
+- 북마크: 추가/열람/열기/삭제, 별도 PIN, 암호화 백업, 기기별 해제. PIN 변경·분실 복구는 v0.1 미지원.
+- 발표 목표: 1~4배 휠 확대, 큰 포인터, 실시간 콘텐츠 유지, Esc/종료 복원. 사용자 실행에서 잔상·반복 확대 결함 보고됨. 수정 후 실기기 검증 필요하며 Windows 실행·화면 공유도 미검증.
+- Chrome 내부 화면·북마크 바·주소창·PDF 뷰어·주입 제한 페이지는 보호 범위 밖. 일반 북마크와 비밀번호를 수정/삭제하지 않음.
+- Windows 발표는 기본 모니터만 대상. 확장/발표 앱이 빌드됐다는 사실을 양 OS 실기기 검사 통과로 표시하지 않음.
+
+## 실행·검사·배포 산출물
+- `npm test`: Node 내장 테스트. `npm run check`: JS 구문·manifest 파일·권한 검사.
+- `node scripts/preview.mjs`: localhost 테스트 API UI. 실제 Chrome 동기화/확장 통합 테스트가 아님.
+- macOS 권한 함정: TCC는 화면 기록 권한을 앱 **경로별**로 기록하고, ad-hoc 서명은 빌드마다 값이 바뀐다. 복사본이 둘이면 권한이 한쪽에만 붙어 "권한을 주라"가 반복된다. 앱에 단일 인스턴스 검사를 넣었고 `presenter/macos/install.sh`가 고정 경로 설치 + tccutil reset을 처리한다. 정식 개발자 ID 서명 전에는 재빌드마다 재허용이 필요하다.
+- `bash presenter/macos/install.sh`: /Applications(쓰기 불가 시 ~/Applications)에 설치하고 옛 권한 기록을 지운 뒤 실행.
+- `bash presenter/macos/build.sh`: Mac 공용 앱. Swift 6.4, 임시 서명, 공증 안 됨. Intel 빌드에서 SDK 호환 archive 경고가 있으므로 Intel 실행 검증 필요.
+- `dotnet publish presenter/windows/Presenter.csproj -c Release -o dist/windows`: .NET 8 self-contained x64 EXE. 코드 서명 안 됨.
+- `npm run package`: 확장 ZIP·플랫폼별 발표 ZIP·SHA256SUMS를 `dist/release/`에 생성하고 이전 버전 ZIP은 지운다. 빌드 산출물(dist/Browser Sheriff Presenter.app, dist/windows)과 분리해, ZIP을 제자리에서 풀 때 앱 이름이 겹쳐 Finder가 '… 2.app' 중복본을 만들던 문제를 없앴다. 설치 안내는 dist/release/START-HERE.md.
+- 앱/확장 스토어 계정·환경변수·공개 배포 대상 없음. 정식 서명·공증·스토어 등록은 별도 작업.
+
+## 화면 조각 핀 (2026-09-19 사용자 요청)
+- 사용자 요구: Snipaste 를 조사해 기능을 정리하고 발표 도우미에 넣되, 기존 집중 모드·확대와 충돌하지 않게 할 것.
+- Snipaste 조사 요약: ① 영역 스닙(F1) — UI 요소 자동 인식, 픽셀 확대경, 색 추출 ② 주석 — 사각형·타원·선·화살표·연필·형광펜·글자·모자이크·가우시안 흐림·지우개·되돌리기 ③ **붙이기(F3)** — 클립보드의 그림·글·HTML·색·이미지 파일을 늘 위에 뜨는 창으로 띄움 ④ 붙인 창 조작 — 휠 확대, `1`/`2` 회전, `3`/`4` 뒤집기, `Ctrl+휠` 투명도, `Space` 편집, 두 번 누르기 숨기기, `Shift+두 번` 축소판, `Alt` 색 추출, 클릭 통과, 그룹·자동 복원 ⑤ 다중 화면·HiDPI, 테마·단축키 사용자 지정.
+- 채택 범위: ③④ 를 중심으로 ① 의 영역 스닙을 넣었다. ② 주석과 ⑤ 사용자 지정은 이번 범위에서 제외(별도 그리기 도구 한 벌이 필요하고, 교실용으로는 붙여 두고 견주는 쓰임이 먼저다). 색 추출도 제외.
+- 교실용으로 바꾼 점: Snipaste 는 단축키 암기가 전제다. 핀에 **올려 두면 나타나는 작은 단추(닫기·복사·저장·회전)** 와 **오른쪽 클릭 전체 메뉴(한국어)** 를 넣어 키를 몰라도 쓸 수 있게 했다. 잘라내면 곧바로 붙는다(Snipaste 는 스닙과 붙이기가 두 단계).
+- 충돌 방지 결정:
+  - 핀을 발표 오버레이보다 **위 레벨**에 두고 **캡처에서 제외**(macOS sharingType=.none). 확대 화면 안에 핀이 겹쳐 그려지거나 스스로를 찍는 되먹임을 원천 차단한다. v0.5.2 재캡처 증상과 같은 부류의 위험이다.
+  - Windows 는 확대 API 가 바탕화면 전체를 키우므로 제외가 불가능하다. 큰 포인터와 같은 방식으로 배율만큼 보정해 보이는 크기·자리를 유지한다. 확대 중 흐려지는 것은 OS 방식 때문이며 수용한다(집중 모드 흐림/어둡기 차이와 같은 성격).
+  - 조각을 내는 동안만 배율 1배·집중 모드 끔. 확대 중에는 보이는 자리와 실제 좌표가 어긋난다.
+  - 키 우선순위: 조각 중 > 고른 핀 > 확대·집중 해제 > 발표 종료. 휠은 조합키로 갈린다(발표는 ⌃⌥ 필요).
+  - **클릭 통과는 되돌릴 길을 반드시 남긴다.** 통과를 켠 핀은 클릭을 받지 않으므로 사이드바 버튼·앱 메뉴·⌃⌥T 세 갈래로 해제한다. v0.12.0 교훈(빠져나오지 못하게 만들지 말 것)의 적용이다.
+- 보류: 주석 도구, 색 추출, 핀 그룹·자동 복원, 다중 화면 동시 조각. 필요하면 다음 차례에 검토.
+
+## 근거
+- [Chrome storage / Sync 한도](https://developer.chrome.com/docs/extensions/reference/api/storage)
+- [Chrome scripting](https://developer.chrome.com/docs/extensions/reference/api/scripting)
+- [Chrome DNR](https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest)
+- [Chrome 프로필 경계](https://support.google.com/chrome/answer/2364824)
+- [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit)
+- [Windows 전체 화면 Magnification API](https://learn.microsoft.com/en-us/windows/win32/api/magnification/nf-magnification-magsetfullscreentransform)
+- [Snipaste 공식 소개 · 기능과 기본 단축키](https://www.snipaste.com/)
+- [SCScreenshotManager (macOS 14+)](https://developer.apple.com/documentation/screencapturekit/scscreenshotmanager)

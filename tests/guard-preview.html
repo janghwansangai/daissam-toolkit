@@ -1,0 +1,10 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><title>기존 페이지 잠금 검증</title><style>body{font:18px system-ui;max-width:700px;margin:70px auto;color:#173b36;background:#fafbf5}input,button{font:inherit;padding:14px;margin:12px 0}#live{font-size:40px}small{display:block;color:#777}</style><h1>기존 페이지 잠금 검증</h1><p>가짜 Chrome API를 사용하는 로컬 테스트 페이지입니다.</p><label>작성 중인 내용 <input id="draft" value="닫거나 지워지면 안 되는 내용"></label><div><button id="lock">테스트 잠금</button><button id="counter">클릭 수: 0</button></div><p id="live"></p><small>PIN 확인 버튼은 테스트용으로 자동 해제합니다. 실제 PIN 검증은 확장 패널에서 수행합니다.</small><script type="module">
+import {createChrome} from './chrome-mock.mjs';const m=createChrome();window.chrome=m.chrome;
+chrome.tabs.sendMessage=async(id,message)=>{chrome.runtime.onMessage.emit(message,{},()=>{});};
+chrome.windows.create=async()=>{setTimeout(()=>chrome.runtime.sendMessage({type:'unlock',pin:'123456'}),0);};
+await import('../extension/background.js');await chrome.runtime.sendMessage({type:'setup',name:'테스트 프로필',pin:'123456'});
+let count=0;document.querySelector('#counter').onclick=e=>e.target.textContent='클릭 수: '+(++count);
+document.querySelector('#lock').onclick=()=>chrome.runtime.sendMessage({type:'lock'});
+setInterval(()=>document.querySelector('#live').textContent=new Date().toLocaleTimeString(),500);
+await import('../extension/guard.js');
+</script></html>

@@ -1,0 +1,84 @@
+{
+  "manifest_version": 3,
+  "name": "다있쌤",
+  "version": "0.34.0",
+  "description": "프로필 오사용 방지, 동기화 메모, 폴더 북마크, 발표 도우미, 수업 유틸리티",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "storage",
+    "alarms",
+    "idle",
+    "declarativeNetRequest",
+    "scripting",
+    "clipboardWrite",
+    "sidePanel",
+    "nativeMessaging",
+    "offscreen",
+    "notifications",
+    "desktopCapture",
+    "tabCapture"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "다있쌤 열기"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "options_page": "panel.html",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "locked.html"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "guard.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "commands": {
+    "lock-profile": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "프로필 잠금"
+    },
+    "capture-area": {
+      "description": "캡처 — 선택 영역"
+    },
+    "capture-full": {
+      "description": "캡처 — 전체 페이지(스크롤)"
+    },
+    "capture-visible": {
+      "description": "캡처 — 보이는 부분"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkwka0HwdG4n77KIfRrBSxE8FNKc/GuPHcrRkSmPXVbEPsuk8ltFn3w1A5wrRedRtO5V3QA/jZ+SEooyeBK+ZpJyqj3JbI8AJUX0s+KHJXpUjEFkRn9qcUlWBMt0dbgR6pH13SJhU9K+7iiyX7QuxWzI8CcJ4LHbFsVOq1hzI3V+ciRQ6iNvAg5LZm20PZsVcKKoIgM4FYeiIQDusMkzaxZD1K69GMqqheMizCs9mC3tpBQYFJ4Q8AXVgsHKVXgQwPrzSTXnMgvE+VYYypFySyNvArTyeonagABSQ9JJhdGFzfwyJmVYDXldPxPfIE2NZVGy1St4ixpsf54buojHRAQIDAQAB"
+}

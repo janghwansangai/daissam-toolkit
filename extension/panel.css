@@ -1,0 +1,133 @@
+/* Windows 에는 맥의 시스템 글꼴이 없어서, 라틴 글자는 Segoe UI·한글은 맑은 고딕으로
+   따로 떨어져 한 줄 안에서 두 글꼴이 섞였다. 게다가 맑은 고딕은 굵기가 400·700 둘뿐이라
+   CSS 의 600 을 브라우저가 흉내 내 그리면서 획이 뭉갰다. 그래서 Windows 에서만 흐릿했다.
+   Pretendard(OFL 1.1) 를 함께 담아 Windows 에서는 이 글꼴 하나로 그린다. 가변 글꼴이라
+   45~920 사이 굵기가 모두 진짜다. 인터넷에서 받아오지 않고 확장 안의 파일을 쓴다. */
+@font-face{font-family:'Pretendard Variable';font-style:normal;font-weight:45 920;font-display:swap;
+  src:url('fonts/PretendardVariable.woff2') format('woff2-variations')}
+/* 글꼴과 크기는 기기마다 고를 수 있다(설정 → 화면 글꼴). Windows 에 설치된 맑은 고딕·
+   굴림은 작은 크기에 맞춰 손으로 다듬은 힌팅이 있어 웹폰트보다 획이 또렷하다. 대신 굵기가
+   400·700 둘뿐이라, 그런 글꼴을 고르면 600 을 700 으로 올리고 음수 자간을 0 으로 되돌린다
+   (음수 자간은 맥 시스템 글꼴에 맞춰 둔 값이라 다른 글꼴에서는 글자가 서로 붙는다). */
+:root{--ui-font:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard Variable','Segoe UI',sans-serif;--ui-size:14px;--ui-track:0px;--w-semi:600;--w-black:800;color-scheme:light;--ink:#173b36;--muted:#75837a;--line:#e3e6db;--paper:#fafbf5;--lime:#dff39c;--red:#ad493b}*{box-sizing:border-box}html{font-size:var(--ui-size)}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ui-font);font-size:var(--ui-size);line-height:1.55;width:100%;min-width:280px;min-height:100vh}header{display:flex;align-items:center;gap:8px;padding:11px 18px;border-bottom:1px solid var(--line)}header strong{font-size:1rem;letter-spacing:-.6px}header #owner{margin-left:auto;font-size:0.7857rem;color:#7d8877;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:52%}.brand{display:flex;align-items:center;gap:10px;color:inherit;text-decoration:none;font-size:0.8571rem;line-height:1.25}.brand strong{font-size:1.2143rem;letter-spacing:-1px}.mark{font-size:1.3571rem;color:#597958;line-height:1}.edition{font-size:0.6429rem;letter-spacing:1.5px;color:#809080}main{padding:14px 18px 20px}h1{font-size:1.5rem;letter-spacing:-1px;margin:2px 0 12px;line-height:1.3}h2{font-size:1.1429rem;letter-spacing:-.5px;margin:0}h3{font-size:1.5rem;margin:8px 0}.eyebrow{font-size:0.6429rem;letter-spacing:1.5px;color:#6d806c;font-weight:700}.muted{font-size:0.9286rem;color:#6e7b71;line-height:1.8}.hint{color:#69766c;font-size:0.7857rem;line-height:1.8;margin:16px 0}.welcome{display:flex;justify-content:space-between;align-items:center}.welcome h1{font-size:1.5714rem;margin-bottom:22px;max-width:245px;overflow-wrap:anywhere}button,input,textarea,select{font:inherit}button,a.button-link{cursor:pointer}button{border:0}button:disabled{opacity:.5;cursor:wait}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #b4c969;outline-offset:3px}button span{float:right}label{display:block;font-size:0.8571rem;font-weight:var(--w-semi);margin:12px 0}input,select{width:100%;border:1px solid #dce1d4;border-radius:10px;background:white;color:var(--ink);padding:12px;margin-top:7px}input:focus,textarea:focus,select:focus{outline:2px solid #a2b887;outline-offset:1px}.primary{background:var(--ink);color:#f6f9e9;border-radius:11px;padding:14px 18px;font-weight:var(--w-semi)}.wide{width:100%;margin-top:12px}.secondary{background:#e8eddf;color:var(--ink);padding:9px 15px;border-radius:8px}.quiet{background:transparent;color:#5a705d;padding:9px 5px;font-size:0.8571rem}.lock-button{background:var(--lime);padding:10px 13px;border-radius:9px;font-size:0.8571rem;white-space:nowrap}.lock-button span{margin-left:10px}nav{display:flex;background:#edf0e7;border-radius:11px;padding:4px;gap:3px;margin-bottom:8px}nav button{flex:1;background:transparent;color:#697669;padding:10px 0;border-radius:8px;font-size:0.8571rem}nav button.selected{background:white;color:var(--ink);box-shadow:0 1px 4px #233f2810;font-weight:700}.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.pill{background:#edf2e0;color:#63804f;padding:4px 7px;border-radius:5px;font-size:0.6429rem;letter-spacing:.7px}textarea{display:block;width:100%;height:214px;padding:18px;border:1px solid #e6e3c9;border-radius:12px;background:repeating-linear-gradient(#fffef1,#fffef1 29px,#f1efdf 30px);line-height:30px;resize:vertical;color:#364b36;min-height:150px}textarea::placeholder{color:#a0a58d}.note-bar{display:flex;gap:8px;align-items:center;margin-bottom:10px}.note-tabs{display:flex;gap:5px;flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;padding-bottom:3px;scrollbar-width:thin}.note-tabs::-webkit-scrollbar{height:5px}.note-tabs::-webkit-scrollbar-thumb{background:#d3dac9;border-radius:3px}.note-tab{flex:0 0 auto;max-width:96px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:#edf0e7;color:#697669;padding:8px 10px;border-radius:8px;font-size:0.7857rem;line-height:1.2}.note-tab.selected{background:var(--ink);color:#f6f9e9;font-weight:700}#add-note{flex:none;padding:8px 12px;font-size:1.0714rem;line-height:1}.note-bar select,.note-bar input{margin:0;flex:1;min-width:0}.note-bar button{white-space:nowrap;flex:none}.clip-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;background:#eef2e6;border-radius:10px;padding:8px 11px}.switch{display:flex;align-items:center;gap:8px;margin:0;font-size:0.8571rem;font-weight:var(--w-semi);cursor:pointer}.switch input{width:auto;margin:0;padding:0}.switch.check{background:none;padding:0;margin:14px 0 4px;font-weight:var(--w-semi)}.clip-state{font-size:0.7143rem;color:#7d8877;white-space:nowrap}.clip-state.on{color:#4a7a3f;font-weight:700}.safe-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 0 0}.safe-row button{flex:none}.tool{border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 14px;border-top:1px solid var(--line)}.tool>summary{padding:13px 0;font-weight:700;font-size:0.9286rem;list-style:none;color:var(--ink)}.tool>summary::-webkit-details-marker{display:none}.tool>summary::before{content:"▶";display:inline-block;margin-right:8px;font-size:0.6429rem;color:#7d8877;transition:transform .15s}.tool[open]>summary::before{transform:rotate(90deg)}.tool>*:last-child{margin-bottom:12px}.readout{font:700 2.4286rem/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;padding:14px 0 6px;letter-spacing:-1px}.readout.small{font-size:1.4286rem;padding:8px 0}.laps{max-height:96px;overflow:auto;font:0.7857rem/1.9 ui-monospace,Menlo,monospace;color:#6e7b71}.knob-row{display:flex;gap:9px}.knob-row .knob{flex:1}.knob-row input[type=number],.knob-row select{width:100%;margin-top:4px;padding:9px}.pick-stage{display:grid;place-items:center;height:104px;background:#eef2e6;border-radius:12px;margin:10px 0;overflow:hidden}#pick-number{font:800 3.2857rem/1 ui-monospace,Menlo,monospace;color:var(--ink)}#pick-number.rolling{animation:roll .09s linear infinite}@keyframes roll{0%{transform:translateY(-8px);opacity:.55}50%{transform:translateY(0);opacity:1}100%{transform:translateY(8px);opacity:.55}}#pick-number.landed{animation:land .5s cubic-bezier(.2,1.6,.4,1)}@keyframes land{0%{transform:scale(.4);color:#7fa05f}60%{transform:scale(1.25)}100%{transform:scale(1)}}.meter{height:15px;background:#e8ece1;border-radius:8px;overflow:hidden;margin-top:6px}#noise-bar{height:100%;width:0;border-radius:8px;background:linear-gradient(90deg,#9fc46b,#e0c15a 60%,#c4664f);transition:width .1s linear}.music-now{font-size:0.8571rem;color:#5d6b5f;background:#eef2e6;border-radius:9px;padding:10px 12px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pad-row input{flex:1;min-width:0;margin:0}.team-board{display:flex;flex-direction:column;gap:7px;margin:10px 0}.team-row{display:flex;align-items:center;gap:7px}.team-row input.team-name{flex:1;min-width:0;margin:0;padding:8px 9px;font-size:0.8571rem}.team-row input.team-score{width:62px;margin:0;padding:8px 6px;text-align:center;font-weight:700}.team-row button{flex:none;width:34px;padding:8px 0;border-radius:8px;background:#e8eddf;color:var(--ink);font-weight:700}.pin-deck{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.pin-card{border:1px solid #d9e2ce;background:#fbfdf4;border-radius:11px;padding:10px 12px}.pin-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.pin-head strong{font-size:0.8571rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pin-head button{background:none;color:#7d8877;font-size:0.7857rem;padding:4px 6px;flex:none}.pin-body{font-size:0.8571rem;line-height:1.7;color:#4a5a4d;white-space:pre-wrap;overflow-wrap:anywhere;max-height:88px;overflow:auto;margin-top:5px}.pin-toggle{background:none;color:#7d8877;font-size:0.8571rem;padding:8px 6px;flex:none}.pin-toggle.on{color:#4a7a3f;font-weight:700}.shot-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:18px 0 4px;padding-top:15px;border-top:1px solid var(--line);font-size:0.9286rem}.muted-small{font-size:0.7143rem;color:#7d8877}.shot{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--line)}.shot img{width:62px;height:46px;object-fit:cover;border-radius:7px;border:1px solid var(--line);background:white;flex:none}.shot img.missing{background:#e8ece1}.shot-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.shot-meta small{font-size:0.7143rem;color:#74816f;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.shot button{flex:none;padding:7px 10px;font-size:0.7857rem}.note-footer{display:flex;justify-content:space-between;gap:10px;font-size:0.7143rem;color:#7d8877;margin-top:9px}.actions{display:flex;justify-content:space-between;align-items:center;margin:14px 0}details{border-top:1px solid var(--line);margin-top:20px;padding-top:15px}summary{cursor:pointer;color:#6b7d6d;font-size:0.8571rem}#settings{margin-top:25px}.version{background:#eef1e8;border-radius:8px;padding:12px;margin-top:10px}.version p{white-space:pre-wrap;max-height:100px;overflow:auto;font-size:0.8571rem;overflow-wrap:anywhere}.version small{color:#74816f}.vault-symbol{background:#eaf0dc;color:#738b58;display:grid;place-items:center;width:56px;height:56px;font-size:2.1429rem;border-radius:18px;margin-top:20px}.bookmark{display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:14px 0}.bookmark a{color:var(--ink);text-decoration:none;flex:1;min-width:0}.bookmark strong,.bookmark small{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.bookmark small{font-size:0.7857rem;color:#7b897b;margin-top:3px}.bookmark button{color:var(--red);background:none;font-size:0.8571rem;padding:8px;flex:none;white-space:nowrap}.bookmark .move{flex:0 0 auto;width:auto;max-width:96px;margin:0;padding:6px 7px;font-size:0.7857rem;border-radius:7px;background:#f3f5ee}.import-label{font-weight:400;font-size:0.7857rem;color:#6a7d6b}.import-label input{font-size:0.7857rem}.presenter-title{font-size:1.4286rem;line-height:1.35;margin:6px 0 10px}.presenter-preview{height:120px;background:#e7eddd;border-radius:14px;position:relative;overflow:hidden;display:grid;place-items:center}.preview-lines{width:220px;height:90px;background:repeating-linear-gradient(transparent,transparent 13px,#cddbbd 14px,#cddbbd 21px);transform:rotate(-8deg)}.cursor-shape{position:absolute;z-index:1;font-size:5.7143rem;color:#1d493e;transform:rotate(-35deg);left:110px;top:15px;text-shadow:2px 3px white}.zoom-chip{position:absolute;right:35px;bottom:28px;z-index:2;background:var(--lime);border:4px solid var(--paper);border-radius:30px;padding:8px 19px;font-weight:var(--w-black)}.button-link{display:block;text-align:center;text-decoration:none}.pad-row{display:flex;gap:7px;margin:14px 0 4px}.pad-row button{flex:1;padding:12px 6px;border-radius:10px;font-size:0.8571rem}.knobs{border:1px solid var(--line);border-radius:12px;padding:6px 14px 12px;margin:12px 0}.knob{display:block;font-size:0.7857rem;font-weight:var(--w-semi);margin:10px 0 0;color:#5d6b5f}.knob output{float:right;font-weight:400;color:#7d8877}.knob input[type=range]{width:100%;margin:4px 0 0;padding:0}.knob input[type=color]{width:100%;height:32px;padding:2px;margin-top:4px}.shortcuts{border:1px solid var(--line);border-radius:12px;padding:4px 14px 8px;margin:0 0 18px}.shortcut-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.shortcut-head h3{font-size:0.9286rem;margin:0;letter-spacing:-.3px}.shortcuts .hint{margin:9px 0 1px}.shortcut{display:flex;justify-content:space-between;align-items:center;gap:5px;font-size:0.7857rem;padding:8px 0;border-bottom:1px solid var(--line)}.shortcut:last-of-type{border-bottom:0}kbd{font-size:0.7143rem;background:#edf0e4;padding:3px 6px;border-radius:4px}.os-pick{display:flex;gap:4px;flex:none}.oschip{background:#edf0e7;color:#697669;font-size:0.7143rem;padding:5px 9px;border-radius:7px}.oschip.selected{background:var(--ink);color:#f6f9e9;font-weight:700}.keychip{font-size:0.7143rem;background:#edf0e4;color:var(--ink);padding:3px 6px;border-radius:4px;white-space:nowrap;border:1px dashed #c6d1ba;flex:none}.app-keys{font-size:0.7857rem;margin:4px 0 0;padding:7px 10px;border-radius:8px;background:#eef2e6;color:#4f5f52}.app-keys:empty{display:none}.app-keys.ok{background:#e4f0d2;color:#3e6a2f}.app-keys.warn{background:#fce8dc;color:#873c2e}.keychip.armed{background:var(--lime);border-style:solid;border-color:#8ea862;font-weight:700}#notice{border-radius:9px;background:#fce8dc;color:#873c2e;padding:12px;font-size:0.8571rem;margin-top:16px;white-space:pre-line}footer{padding:17px 26px;border-top:1px solid var(--line);display:flex;align-items:center;gap:7px;color:#81917d;font-size:0.7143rem}footer>span:last-child{margin-left:auto}.maker{margin-left:12px;color:#7d8877}.maker b{color:#5d6b5f;font-weight:700}
+.getapp{border:1px solid var(--line);border-radius:12px;padding:10px 14px 4px;margin:12px 0}
+.getapp>strong{font-size:0.8571rem}
+.getapp-row{display:flex;gap:8px;margin:9px 0 0}
+.getapp-row button{flex:1;padding:10px 6px;font-size:0.8571rem}
+.getapp-row button.busy{opacity:.6}.status-dot{width:5px;height:5px;border-radius:50%;background:#89a067}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}[hidden]{display:none!important}@media(max-width:359px){header{padding:10px 13px}main{padding:12px 13px 16px}footer{padding:14px 16px}nav button{font-size:0.7857rem}}@media(min-width:600px){body{max-width:440px;margin:36px auto;min-height:550px;border:1px solid var(--line);border-radius:20px;box-shadow:0 18px 80px #203c3310}html{background:#edf0e7}}
+#notice{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);width:calc(100% - 40px);max-width:388px;z-index:10;box-shadow:0 8px 30px #173b3620}
+/* 녹음기 — 흔한 녹음기 모양: 파형 + 큰 빨간 단추 + 시계 */
+.rec-stage{position:relative;background:#16342b;border-radius:12px;margin:10px 0 0;overflow:hidden}
+.rec-wave{display:block;width:100%;height:76px}
+.rec-clock{position:absolute;right:12px;top:8px;font:700 1.3571rem/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#dff39c;letter-spacing:-.5px}
+.rec-controls{display:flex;align-items:center;justify-content:center;gap:18px;margin:14px 0 4px}
+.rec-dot{width:62px;height:62px;border-radius:50%;background:#fff;border:3px solid #d8ded0;display:grid;place-items:center;padding:0;flex:none}
+.rec-dot span{display:block;width:34px;height:34px;border-radius:50%;background:#ad493b;transition:all .16s}
+.rec-dot.on span{width:22px;height:22px;border-radius:5px}
+.rec-dot:focus-visible{outline:3px solid #b4c969;outline-offset:3px}
+.rec-side{width:42px;height:42px;border-radius:50%;background:#e8eddf;color:#41564a;font-size:0.9286rem;padding:0;flex:none}
+.rec-side:disabled{opacity:.35}
+.rec-sources{display:flex;gap:7px;margin-top:6px}
+.rec-chip{flex:1;display:flex;align-items:center;gap:7px;margin:0;background:#eef2e6;border-radius:10px;padding:9px 10px;font-size:0.7857rem;font-weight:var(--w-semi);cursor:pointer;position:relative;overflow:hidden}
+.rec-chip input{width:auto;margin:0;padding:0;flex:none}
+.rec-chip i{position:absolute;left:0;bottom:0;height:3px;width:0;background:#89a067;transition:width .08s linear}
+.rec-save{display:flex;gap:7px;margin-top:10px}
+.rec-save label{flex:1;display:flex;align-items:center;gap:6px;margin:0;background:#f2f5ec;border-radius:9px;padding:8px 10px;font-size:0.7857rem;font-weight:var(--w-semi);cursor:pointer}
+.rec-save input{width:auto;margin:0;flex:none}
+#rec-state{text-align:center;margin:8px 0 0}
+#rec-state.on{color:#ad493b;font-weight:700}
+/* 늘 보이는 빠른 조작 도크 — 어느 탭에서나 스크롤 없이 닿는다 */
+/* 도크는 스크롤해도 늘 보이도록 위에 붙여 둔다. main 의 좌우 여백만큼 밖으로 빼서
+   가장자리까지 덮어야, 아래 내용이 도크 옆으로 비쳐 지나가지 않는다. */
+.dockbar{position:sticky;top:0;z-index:20;background:var(--paper);margin:-14px -18px 8px;padding:8px 18px 4px;box-shadow:0 6px 10px -8px #203c3326}
+.dockbar nav{margin-bottom:0}
+@media(max-width:359px){.dockbar{margin:-12px -13px 8px;padding:8px 13px 0}}
+.dock{display:flex;align-items:center;flex-wrap:wrap;gap:2px;background:var(--ink);border-radius:10px;padding:4px 5px}.dock-main,.dock-side{display:flex;align-items:center;gap:2px;flex-wrap:wrap}
+
+.dockbtn{width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.12);color:var(--lime);font-size:0.7857rem;line-height:1;padding:0;flex:none;display:grid;place-items:center}.dockbtn svg{width:13px;height:13px;display:block;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.dockbtn:hover{background:rgba(255,255,255,.24)}
+.dockbtn.on{background:var(--lime);color:var(--ink);font-weight:700}
+
+.dock-tip{font-size:0.7143rem;color:#7d8877;text-align:center;padding:2px 0 5px;min-height:18px;line-height:1.5}
+/* 단축키 줄에서 바로 켜고 끄기 */
+.shortcut{gap:7px}
+.shortcut.info{opacity:.75}
+.row-do{display:flex;gap:4px;flex:none;margin-left:2px}
+.chip{background:#e8eddf;color:var(--ink);font-size:0.7143rem;font-weight:var(--w-semi);padding:5px 9px;border-radius:7px;white-space:nowrap}
+.chip.go{background:var(--ink);color:#f6f9e9}
+.chip:hover{filter:brightness(.95)}
+.sw{width:34px;height:19px;border-radius:10px;background:#d8ded0;padding:0;position:relative;flex:none}
+.sw i{position:absolute;left:2px;top:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:left .14s}
+.sw[aria-checked=true]{background:var(--ink)}
+.sw[aria-checked=true] i{left:17px;background:var(--lime)}
+.shortcut small{color:#8b988c;font-size:0.7143rem;margin-left:4px}
+#settings .section-head{margin-bottom:10px}
+.more{border-top:0;margin:8px 0 0;padding-top:0}
+.more>summary{font-size:0.7857rem;color:#7d8877;padding:4px 0}
+.knobs{margin:8px 0}
+.rec-takes{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+.rec-take{border:1px solid #d9e2ce;background:#fbfdf4;border-radius:11px;padding:9px 11px}
+.rec-take-head{display:flex;align-items:center;gap:6px;font-size:0.7857rem;font-weight:var(--w-semi)}
+.rec-take-head span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-row{display:block;font-size:0.7857rem;font-weight:var(--w-semi);color:#5d6b5f;margin:10px 0 0}
+.pick-row select{width:100%;margin-top:4px;font:inherit;font-size:0.8571rem;padding:8px 9px;border:1px solid #dce1d4;border-radius:9px;background:white;color:var(--ink)}
+.rec-take-head button.wav{background:#e4ecd6}
+.rec-take-head button{flex:none;font-size:0.7143rem;padding:5px 9px;border-radius:7px;background:#e8eddf;color:var(--ink);font-weight:var(--w-semi)}
+.rec-take-head button.keep{background:var(--ink);color:#f6f9e9}
+.rec-take-head button.kept{background:#c9dca6;color:#2d4a26}
+.rec-take audio{width:100%;height:30px;margin-top:8px;display:block}
+
+/* 획이 또렷한 시스템 글꼴을 고른 경우. 없는 굵기를 브라우저가 흉내 내지 않게 700 으로
+   올리고, 맥 글꼴에 맞춰 둔 음수 자간을 지운다. */
+:root[data-crisp]{--w-semi:700;--w-black:700}
+/* 자간은 맥 시스템 글꼴에 맞춰 손으로 좁혀 둔 값이라, 다른 글꼴에서는 글자가 서로 붙는다.
+   또렷한 글꼴을 골랐을 때는 0 에서 시작하고, 아래 자간 조절값만큼 더 벌린다. */
+:root[data-crisp] *{letter-spacing:var(--ui-track)!important}
+:root[data-track] *{letter-spacing:var(--ui-track)!important}
+
+/* ── 캡처 탭 ── 사진은 위, 영상은 아래. 누를 것은 모두 펼쳐 둔다(빨리 실행하도록). */
+.cap-block{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 12px 10px;margin:0 0 12px}
+.cap-title{display:flex;align-items:center;gap:7px;margin:0 0 10px;font-size:1rem}
+.cap-title svg{width:19px;height:19px;fill:none;stroke:var(--ink);stroke-width:1.7;stroke-linejoin:round}
+.cap-title b{font-weight:var(--w-black)}
+.cap-hint{margin-left:auto;font-size:0.7143rem;color:#8a9585}
+.cap-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:0 0 8px}
+.cap-tiles.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.cap-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:12px 4px 10px;border-radius:12px;background:#f3f5ee;color:var(--ink);font-size:0.7857rem;font-weight:var(--w-semi);min-height:78px;border:2px solid transparent;text-align:center;line-height:1.25}
+.cap-tile svg{width:32px;height:32px;fill:none;stroke:#3f5f4a;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.cap-tile svg .fillish{fill:#dff39c}
+.cap-tile:hover{background:#e9eee0}
+.cap-tile.selected{background:#f4f9e6;border-color:#9fbd62;color:#2f5130}
+.cap-tile:disabled{opacity:.55}
+.cap-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border-radius:10px;background:#f3f5ee;color:var(--ink);margin:6px 0;text-align:left;font-size:0.8571rem}
+.cap-row svg{width:18px;height:18px;flex:none;fill:none;stroke:#5f7f4f;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.cap-row:hover{background:#e9eee0}
+.cap-row-line{display:flex;gap:6px;align-items:center}
+.cap-row-line .cap-row{flex:1;min-width:0}
+.cap-row-line select{width:auto;margin:0;padding:9px 8px;flex:none}
+.cap-save{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 2px 2px;font-size:0.8571rem;color:#7d8877}
+.cap-save select{width:auto;max-width:62%;margin:0;padding:7px 8px;font-size:0.8571rem}
+.rec-opts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
+.rec-pick{display:flex;align-items:center;gap:4px;margin:0;padding:5px 7px;border-radius:9px;background:#f3f5ee;font-weight:400;flex:1;min-width:0}
+.rec-pick input{width:auto;margin:0;padding:0;flex:none}
+.rec-pick svg{width:16px;height:16px;flex:none;fill:none;stroke:#5f7f4f;stroke-width:1.7;stroke-linecap:round}
+.rec-pick select{margin:0;padding:3px 2px;border:0;background:transparent;font-size:0.7857rem;min-width:0;width:100%}
+.rec-bar{display:flex;align-items:center;gap:6px;font-size:0.7857rem;color:#4f5f52;padding:5px 7px;border-radius:9px;background:#f3f5ee}
+.rec-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 10px;font-size:0.8571rem}
+.rec-line select{width:auto;margin:0;padding:6px 7px;font-size:0.8571rem}
+.rec-where{padding:6px 8px;border-radius:8px;background:#f3f5ee;color:#4f5f52}
+.rec-line .quiet{margin-left:auto;padding:6px 2px}
+.rec-more{border-top:1px solid var(--line);margin:0 0 10px;padding:4px 0 6px}
+.rec-more select{margin-top:4px}
+.rec-start{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:13px;border-radius:12px;background:var(--ink);color:#f6f9e9;font-size:1rem;font-weight:var(--w-semi)}
+.rec-start i{width:14px;height:14px;border-radius:50%;background:#ff6b5a;box-shadow:0 0 0 3px rgba(255,255,255,.18)}
+.rec-start:hover{filter:brightness(1.1)}
+/* 세 무리를 줄 하나에 붙여 둔다. 예전에는 오른쪽으로 밀어(margin-left:auto) 자리가 모자라면
+   가운데에 빈 구멍이 생기고 단추가 아랫줄로 내려갔다. 이제는 칸막이만 두고 왼쪽부터 채운다. */
+.dock-cap{display:flex;align-items:center;gap:2px;padding:0 5px;border-left:1px solid rgba(255,255,255,.14);border-right:1px solid rgba(255,255,255,.14)}
+.dock-cap+.dock-side{margin-left:3px}
+/* 사이드바를 좁게 쓰면 단추가 아랫줄로 내려간다. 좁아질수록 조금씩 줄여 한 줄을 지킨다. */
+@media(max-width:379px){.dockbtn{width:22px;height:22px;font-size:0.7143rem}.dockbtn svg{width:12px;height:12px}.dock-cap{padding:0 3px}}
+@media(max-width:329px){.dockbtn{width:20px;height:20px}.dockbtn svg{width:11px;height:11px}.dock{gap:1px}.dock-main,.dock-side{gap:1px}.dock-cap{gap:1px;padding:0 2px}}
+.busy-cap{opacity:.6;pointer-events:none}
+body.capturing .cap-tile,body.capturing .cap-row,body.capturing #dock-cap-area,body.capturing #dock-cap-full{opacity:.55;pointer-events:none}

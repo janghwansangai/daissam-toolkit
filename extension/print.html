@@ -1,0 +1,29 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>메모 인쇄</title><style>
+/* Windows 에는 맥의 시스템 글꼴이 없어서, 라틴 글자는 Segoe UI·한글은 맑은 고딕으로
+   따로 떨어져 한 줄 안에서 두 글꼴이 섞였다. 게다가 맑은 고딕은 굵기가 400·700 둘뿐이라
+   CSS 의 600 을 브라우저가 흉내 내 그리면서 획이 뭉갰다. 그래서 Windows 에서만 흐릿했다.
+   Pretendard(OFL 1.1) 를 함께 담아 Windows 에서는 이 글꼴 하나로 그린다. 가변 글꼴이라
+   45~920 사이 굵기가 모두 진짜다. 인터넷에서 받아오지 않고 확장 안의 파일을 쓴다. */
+@font-face{font-family:'Pretendard Variable';font-style:normal;font-weight:45 920;font-display:swap;
+  src:url('fonts/PretendardVariable.woff2') format('woff2-variations')}
+
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;padding:38px 42px;background:white;color:#17231f;font:14px/1.8 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard Variable','Segoe UI',sans-serif;max-width:820px}
+h1{font-size:21px;letter-spacing:-.5px;margin:0 0 6px}
+.meta{font-size:11px;color:#6b7a70;margin:0 0 22px;padding-bottom:14px;border-bottom:1px solid #dfe4da}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.9 inherit;margin:0}
+.shots{display:flex;flex-wrap:wrap;gap:12px;margin-top:22px}
+.shots img{max-width:46%;border:1px solid #d7ddd2;border-radius:5px}
+.bar{position:fixed;top:0;right:0;padding:14px 18px;display:flex;gap:8px}
+.bar button{font:inherit;border:0;border-radius:9px;padding:9px 15px;cursor:pointer;background:#173b36;color:#f6f9e9}
+.bar button.quiet{background:#e8eddf;color:#173b36}
+.empty{color:#8b978d}
+@media print{.bar{display:none}body{padding:0;max-width:none}}
+</style></head><body>
+<div class="bar"><button id="again" type="button">인쇄 ↗</button><button id="close" class="quiet" type="button">닫기</button></div>
+<h1 id="title">메모</h1>
+<p class="meta" id="meta"></p>
+<pre id="text"></pre>
+<div class="shots" id="shots"></div>
+<script src="print.js"></script></body></html>

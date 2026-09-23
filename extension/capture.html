@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>다있쌤 캡처 편집기</title>
+<link rel="stylesheet" href="capture.css">
+</head>
+<body>
+<header class="bar" role="toolbar" aria-label="그리기 도구">
+  <div class="brand"><span class="mark">✳</span><b>다있쌤</b><span>캡처</span></div>
+  <div class="tools" id="tools">
+    <button data-tool="select" title="고르기·옮기기 (V)">↖</button>
+    <button data-tool="crop" title="자르기 (C)">⌗</button>
+    <button data-tool="rect" title="사각형 (R)">▭</button>
+    <button data-tool="ellipse" title="원 (O)">◯</button>
+    <button data-tool="arrow" title="화살표 (A)">↗</button>
+    <button data-tool="line" title="선 (L)">╱</button>
+    <button data-tool="pen" title="펜 (P)">✎</button>
+    <button data-tool="mark" title="형광펜 (H)">▌</button>
+    <button data-tool="text" title="글자 (T)">T</button>
+    <button data-tool="blur" title="흐리게 — 개인정보 가리기 (B)">▦</button>
+    <button data-tool="step" title="번호 붙이기 (N)">①</button>
+  </div>
+  <div class="inks" id="inks" aria-label="색">
+    <button data-ink="#e5484d" title="빨강"></button>
+    <button data-ink="#f5a524" title="주황"></button>
+    <button data-ink="#2f9e44" title="초록"></button>
+    <button data-ink="#1c7ed6" title="파랑"></button>
+    <button data-ink="#111111" title="검정"></button>
+    <button data-ink="#ffffff" title="흰색"></button>
+    <label class="own" title="색 직접 고르기"><input type="color" id="own-ink" value="#8e44ad"></label>
+  </div>
+  <div class="sizes" id="sizes" aria-label="굵기">
+    <button data-size="2" title="얇게"><i style="height:2px"></i></button>
+    <button data-size="4" title="보통"><i style="height:4px"></i></button>
+    <button data-size="8" title="굵게"><i style="height:7px"></i></button>
+  </div>
+  <div class="text-opts" id="text-opts" hidden>
+    <select id="text-size" aria-label="글자 크기"><option value="18">작게</option><option value="28" selected>보통</option><option value="44">크게</option><option value="68">아주 크게</option></select>
+    <label class="bg"><input type="checkbox" id="text-bg"> 바탕</label>
+  </div>
+  <div class="history">
+    <button id="undo" title="되돌리기 (⌘/Ctrl+Z)">↶</button>
+    <button id="redo" title="다시 하기 (⇧⌘/Ctrl+⇧Z)">↷</button>
+  </div>
+  <div class="actions">
+    <button id="resize" class="ghost" title="그림 크기 바꾸기">크기</button>
+    <button id="ocr" class="ghost" title="그림 속 글자를 뽑아 복사합니다">글자 뽑기</button>
+    <button id="print" class="ghost" title="인쇄">인쇄</button>
+    <div class="menu">
+      <button id="download" class="ghost" aria-haspopup="true" aria-expanded="false">내려받기 ▾</button>
+      <div class="drop" id="download-menu" hidden>
+        <button data-as="png">PNG 그림</button><button data-as="jpg">JPG 그림</button><button data-as="pdf">PDF 문서</button>
+      </div>
+    </div>
+    <button id="copy" class="ghost" title="클립보드에 복사 (⌘/Ctrl+C)">복사</button>
+    <button id="save" class="go" title="바탕화면 ‘캡처이미지’ 폴더에 저장 (⌘/Ctrl+S)">캡처이미지 폴더에 저장</button>
+  </div>
+</header>
+<div class="banner" id="banner" hidden></div>
+<main class="stage" id="stage">
+  <section class="empty" id="empty" hidden>
+    <div class="drop-zone" id="drop-zone">
+      <div class="big">🖼</div>
+      <h1>꾸밀 그림을 가져오세요</h1>
+      <p>그림 파일을 여기에 끌어다 놓거나, 복사해 둔 그림을 <b>⌘V / Ctrl+V</b> 로 붙여 넣으세요.</p>
+      <div class="pick-row">
+        <label class="go-label">파일 고르기<input type="file" id="file" accept="image/*" hidden></label>
+        <button id="paste" class="ghost">클립보드에서 붙이기</button>
+      </div>
+    </div>
+  </section>
+  <div class="paper" id="paper" hidden>
+    <canvas id="canvas"></canvas>
+    <textarea id="writer" class="writer" hidden spellcheck="false" aria-label="그림에 넣을 글자"></textarea>
+    <div class="crop-bar" id="crop-bar" hidden><button id="crop-ok" class="go">✓ 자르기</button><button id="crop-no" class="ghost">그만두기</button></div>
+  </div>
+</main>
+<aside class="side" id="side" hidden>
+  <div class="side-head"><b>뽑은 글자</b><button id="side-close" class="ghost" aria-label="닫기">✕</button></div>
+  <textarea id="ocr-text" spellcheck="false" aria-label="뽑은 글자"></textarea>
+  <button id="ocr-copy" class="go">글자 복사</button>
+  <p class="note">기기 안에서 읽었습니다. 틀린 글자는 여기서 고쳐 복사하세요.</p>
+</aside>
+<dialog id="resize-box">
+  <form method="dialog">
+    <h2>그림 크기</h2>
+    <div class="size-row"><label>가로<input id="resize-w" type="number" min="16" max="16000"></label><span>×</span><label>세로<input id="resize-h" type="number" min="16" max="16000"></label></div>
+    <label class="keep"><input type="checkbox" id="resize-keep" checked> 비율 유지</label>
+    <div class="pick-row"><button value="cancel" class="ghost">그만두기</button><button id="resize-ok" value="ok" class="go">바꾸기</button></div>
+  </form>
+</dialog>
+<footer class="foot"><span id="info"></span><span class="zoom"><button id="fit" class="ghost">화면에 맞춤</button><button id="real" class="ghost">100%</button></span></footer>
+<img id="print-view" alt="" class="print-only">
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="capture.js"></script>
+</body>
+</html>
