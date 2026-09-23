@@ -712,7 +712,7 @@ try{$('version').textContent='v'+chrome.runtime.getManifest().version;}catch{$('
 // 사진(웹페이지·화면)과 영상(화면 녹화). 무거운 일은 서비스 워커(capture-core.js)와
 // 녹화 창(record.js)이 하고, 여기서는 고르고 부르기만 한다.
 const CAP_DEFAULTS={after:'editor',format:'png',quality:92,delay:3,hideFixed:true,hideScrollbar:true,hideSide:true};
-const REC_DEFAULTS={mode:'desktop',camera:false,cameraId:'',cameraName:'',mic:true,micId:'',controlBar:true,res:'1080',format:'mp4',countdown:3,limit:0,sound:true};
+const REC_DEFAULTS={mode:'desktop',camera:false,cameraId:'',cameraName:'',camMix:false,mic:true,micId:'',controlBar:true,res:'1080',format:'mp4',countdown:3,limit:0,sound:true};
 let capOptions={...CAP_DEFAULTS},recOptions={...REC_DEFAULTS};
 function capSay(text){$('cap-status').textContent=text||'';}
 async function loadCapture(){
@@ -723,7 +723,7 @@ async function loadCapture(){
   $('cap-format').value=capOptions.format;$('cap-quality').value=String(capOptions.quality);$('cap-quality-out').textContent=String(capOptions.quality);
   $('cap-hide-fixed').checked=capOptions.hideFixed!==false;$('cap-hide-bar').checked=capOptions.hideScrollbar!==false;
   $('cap-hide-side').checked=capOptions.hideSide!==false;
-  $('rec-cam').checked=!!recOptions.camera;$('rec-mic').checked=recOptions.mic!==false;
+  $('rec-cam').checked=!!recOptions.camera;$('rec-cam-mix').checked=!!recOptions.camMix;$('rec-mic').checked=recOptions.mic!==false;
   $('rec-control').setAttribute('aria-checked',String(recOptions.controlBar!==false));
   $('rec-res').value=String(recOptions.res);$('rec-format').value=recOptions.format;
   $('rec-count').value=String(recOptions.countdown);$('rec-limit').value=String(recOptions.limit);$('rec-sound').checked=recOptions.sound!==false;
@@ -816,14 +816,14 @@ function checkRecFormat(){
 }
 async function saveRecord(){
   // 카메라 이름도 함께 둔다. 전체 화면 녹화에서는 발표 도우미 앱이 같은 카메라를 열어야 한다.
-  recOptions={...recOptions,camera:$('rec-cam').checked,cameraId:$('rec-cam-dev').value,cameraName:$('rec-cam-dev').selectedOptions[0]?.textContent||'',
+  recOptions={...recOptions,camera:$('rec-cam').checked,cameraId:$('rec-cam-dev').value,cameraName:$('rec-cam-dev').selectedOptions[0]?.textContent||'',camMix:$('rec-cam-mix').checked,
     mic:$('rec-mic').checked,micId:$('rec-mic-dev').value,
     controlBar:$('rec-control').getAttribute('aria-checked')==='true',res:$('rec-res').value,format:$('rec-format').value,
     countdown:Number($('rec-count').value)||0,limit:Number($('rec-limit').value)||0,sound:$('rec-sound').checked};
   await chrome.storage.local.set({recordOptions:recOptions});
 }
 for(const tile of document.querySelectorAll('.cap-tile.rec'))tile.addEventListener('click',async()=>{recOptions.mode=tile.dataset.rec;showRecMode();await saveRecord();});
-for(const id of ['rec-cam','rec-cam-dev','rec-mic','rec-mic-dev','rec-res','rec-format','rec-count','rec-limit','rec-sound'])event(id,'change',saveRecord);
+for(const id of ['rec-cam','rec-cam-mix','rec-cam-dev','rec-mic','rec-mic-dev','rec-res','rec-format','rec-count','rec-limit','rec-sound'])event(id,'change',saveRecord);
 event('rec-control','click',async()=>{const next=$('rec-control').getAttribute('aria-checked')!=='true';$('rec-control').setAttribute('aria-checked',String(next));await saveRecord();});
 event('rec-more','click',()=>{const box=$('rec-more-box');box.hidden=!box.hidden;$('rec-more').setAttribute('aria-expanded',String(!box.hidden));$('rec-more').textContent=box.hidden?'더 보기 ›':'접기 ‹';});
 // 장치 이름은 한 번이라도 카메라·마이크를 허용한 뒤에만 보인다. 그 전에는 ‘카메라 1’ 처럼 적는다.

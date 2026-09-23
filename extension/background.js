@@ -484,7 +484,11 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       let away=null;
       if(m.options?.hideSide!==false){ away=await sidePanelAway(); await new Promise(r=>setTimeout(r,450)); }
       const control=m.options?.controlBar!==false;
-      await chrome.windows.create({url:chrome.runtime.getURL('record.html?'+query),type:'popup',width:400,height:control?214:190,focused:true});
+      // 전체 화면 녹화는 Chrome 고르기 창이 이 창 안쪽에 그려진다. 작게 열면 고를 것이
+      // 하나도 안 보인다(사용자 보고). 크게 열고, 화면을 고른 뒤 녹화 창이 스스로 줄인다.
+      const big=String(m.mode||'desktop')==='desktop';
+      await chrome.windows.create({url:chrome.runtime.getURL('record.html?'+query),type:'popup',
+        width:big?860:400,height:big?660:(control?214:190),focused:true});
       // 그 탭에서 사이드바를 다시 켜 둔다(열지는 않는다 — 열면 녹화 화면에 다시 끼어든다).
       if(away)setTimeout(()=>{away.back(false).catch(()=>{});},1500);
       return {opened:true};

@@ -81,7 +81,12 @@ test('카메라 동그라미는 앱이 띄우고, 못 띄우면 영상 안에 �
   assert.equal(existsSync('extension/bubble.html'), false, '제목 표시줄 달린 네모 창은 없앴다');
   assert.doesNotMatch(rec, /bubbleMode|openBubble/);
   assert.match(rec, /async function appCameraUp\(\)/);
-  assert.match(rec, /const wantsCameraView = \(\) => want\.camera && want\.mode === 'desktop'/);
+  // 앱 창은 '화면 전체' 를 담을 때만 영상에 들어간다. 창·탭을 고르면 영상 안에 합쳐야 한다.
+  assert.match(rec, /cameraOnScreen = want\.camera && !want\.camMix && want\.mode === 'desktop' && surface === 'monitor'/);
+  assert.match(rec, /getSettings\(\)\.displaySurface/);
+  // 사용자가 직접 '영상 안에 합치기' 를 고를 수도 있어야 한다(무엇이 어긋나도 카메라는 남는다).
+  assert.match(readFileSync('extension/panel.html', 'utf8'), /id="rec-cam-mix"/);
+  assert.match(readFileSync('extension/panel.js', 'utf8'), /camMix:\$\('rec-cam-mix'\)\.checked/);
   assert.match(rec, /const video = \(cam \|\| \(want\.mode === 'area' && want\.rect\)\)/);
   // 영상 안 동그라미는 그대로 남아 있어야 한다(물러날 자리다).
   assert.match(rec, /c\.arc\(x \+ d \/ 2, y \+ d \/ 2, d \/ 2, 0, Math\.PI \* 2\); c\.clip\(\)/);
@@ -116,6 +121,11 @@ test('첫 고르기가 헛돌면 확장 고르기 창으로 한 번 더 띄운�
   assert.match(rec, /if \(Date\.now\(\) - began > 2500\) throw error;/);
   assert.match(rec, /const picked = await choose\(want\.sound \? \['screen', 'window', 'tab', 'audio'\]/);
   assert.match(rec, /focusMe\(\)\.then\(\(\) => \$\('retry'\)\.focus\(\)\)/);
+  // 고르기 창은 이 창 안쪽에 그려진다. 작으면 고를 것이 하나도 안 보인다(사용자 보고).
+  assert.match(rec, /async function roomForPicker\(\)/);
+  assert.match(rec, /async function backToBar\(\)/);
+  assert.match(rec, /if \(want\.mode === 'desktop'\) await roomForPicker\(\);/);
+  assert.match(readFileSync('extension/background.js', 'utf8'), /width:big\?860:400,height:big\?660/);
 });
 
 // 디스플레이가 바뀌었다는 모달 알림이 발표 중이 아닐 때도 떠서 일을 막았다(윈도우).
@@ -155,7 +165,7 @@ test('클릭 통과 핀 위에서는 앱이 휠을 가로채 투명도를 바꾼
 test('녹화 창은 초점을 잡은 뒤에 화면 고르기를 띄운다', () => {
   const rec = readFileSync('extension/record.js', 'utf8');
   assert.match(rec, /async function focusMe\(\)/);
-  assert.match(rec, /await focusMe\(\);\n\s*screen = await getScreen\(\)/);
+  assert.match(rec, /if \(!fromClick\) await focusMe\(\);\n\s*if \(want\.mode === 'desktop'\) await roomForPicker\(\);\n\s*screen = await getScreen\(\)/);
   assert.match(readFileSync('extension/background.js', 'utf8'), /away=await sidePanelAway\(\); await new Promise/);
 });
 

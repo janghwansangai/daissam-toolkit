@@ -11,6 +11,7 @@ const want = {
   tab: Number(ask.get('tab')) || 0,
   rect: ask.get('rect') ? JSON.parse(ask.get('rect')) : null,
   camera: ask.get('camera') === 'true', cameraId: ask.get('cameraId') || '', cameraName: ask.get('cameraName') || '',
+  camMix: ask.get('camMix') === 'true',
   mic: ask.get('mic') !== 'false', micId: ask.get('micId') || '',
   controlBar: ask.get('controlBar') !== 'false',
   res: Number(ask.get('res')) || 1080, format: ask.get('format') || 'mp4',
@@ -18,9 +19,13 @@ const want = {
   limit: Math.max(0, Number(ask.get('limit')) || 0),
   sound: ask.get('sound') !== 'false'
 };
-// 앱이 동그란 카메라 창을 띄울 상황인지. 표시기에 보내는 모든 알림에 이 값을 함께 넣어야
-// 한다 — 빠뜨리면 앱이 '카메라 꺼짐' 으로 읽고 띄운 창을 바로 닫는다(v0.33.0 에서 그랬다).
-const wantsCameraView = () => want.camera && want.mode === 'desktop';
+// 앱이 동그란 카메라 창을 띄울 상황인지. 화면을 받아 본 뒤에 정해진다 — 그 창은 '화면
+// 전체' 를 담을 때만 영상에 들어가고, 창 하나나 탭을 고르면 그 밖이라 담기지 않는다
+// (사용자 보고: 카메라가 화면에는 보이는데 녹화본에는 없음).
+// 표시기에 보내는 모든 알림에 이 값을 함께 넣어야 한다 — 빠뜨리면 앱이 '카메라 꺼짐' 으로
+// 읽고 띄운 창을 바로 닫는다(v0.33.0 에서 그랬다).
+let cameraOnScreen = false;
+const wantsCameraView = () => cameraOnScreen;
 const SIZES = {720: [1280, 720], 1080: [1920, 1080], 1440: [2560, 1440], 2160: [3840, 2160]};
 const RATE = {720: 2.5e6, 1080: 5e6, 1440: 8e6, 2160: 16e6};
 const NAMES = {desktop: '전체 화면', tab: '이 탭', area: '선택 영역(이 탭)'};
@@ -104,6 +109,27 @@ async function displayStream() {
 async function getScreen() {
   if (want.mode === 'tab' || want.mode === 'area') return tabStream();
   return displayStream();
+}
+// Chrome 의 고르기 창은 이 창 안쪽에 맞춰 그려진다. 창이 작으면 고를 것들이 접혀 하나도
+// 보이지 않는다(사용자 보고: 처음엔 아무것도 없고, 두 번째에는 창이 커지며 목록이 나왔다).
+// 그래서 고르기 전에는 넉넉히 키우고, 화면을 받은 뒤 다시 작은 조작 줄로 돌아간다.
+async function roomForPicker() {
+  const me = await chrome.windows.getCurrent().catch(() => null);
+  if (!me) return;
+  // 이 파일의 screen 은 녹화 중인 화면 스트림이다. 화면 크기는 window.screen 으로 읽어야 한다
+  // (전에도 같은 자리에서 물렸다 — 그냥 screen 을 쓰면 null 에서 멈춘다).
+  const box = window.screen;
+  const width = Math.min(940, Math.max(720, Math.round(box.availWidth * 0.62)));
+  const height = Math.min(780, Math.max(600, Math.round(box.availHeight * 0.72)));
+  await chrome.windows.update(me.id, {state: 'normal', width, height,
+    left: Math.round(box.availLeft + (box.availWidth - width) / 2),
+    top: Math.round(box.availTop + (box.availHeight - height) / 3), focused: true}).catch(() => {});
+  await new Promise(resolve => setTimeout(resolve, 150));
+}
+async function backToBar() {
+  const me = await chrome.windows.getCurrent().catch(() => null);
+  if (!me) return;
+  await chrome.windows.update(me.id, {width: 400, height: want.controlBar ? 214 : 190}).catch(() => {});
 }
 
 // ── 다시 그리기(카메라 얼굴 · 선택 영역). 창이 가려져도 멈추지 않게 프레임 단위로 처리한다. ──
@@ -229,7 +255,12 @@ async function start(fromClick) {
   try {
     // 손길로 부른 경우에는 이미 이 창이 앞에 있다. 그때 초점을 또 건드리면 고르기 창이 닫힌다.
     if (!fromClick) await focusMe();
+    if (want.mode === 'desktop') await roomForPicker();
     screen = await getScreen();
+    // 무엇을 골랐나: monitor(화면 전체) · window(창 하나) · browser(탭).
+    const surface = screen.getVideoTracks()[0].getSettings().displaySurface || '';
+    cameraOnScreen = want.camera && !want.camMix && want.mode === 'desktop' && surface === 'monitor';
+    if (want.mode === 'desktop') await backToBar();
     if (want.mic) {
       try { mic = await navigator.mediaDevices.getUserMedia({audio: {...(want.micId ? {deviceId: {exact: want.micId}} : {}), echoCancellation: true, noiseSuppression: true}}); }
       catch { say('마이크를 쓸 수 없어 소리 없이 녹화합니다.'); }
@@ -239,7 +270,8 @@ async function start(fromClick) {
     // 띄울지다. 탭·선택 영역 녹화에서는 그 창이 담기지 않으므로 영상 안에 합쳐 넣는다.
     const onBadge = await badge('show', {time: '00:00', camera: want.camera,
       cameraView: wantsCameraView(), cameraName: want.cameraName});
-    const appCam = onBadge && wantsCameraView() ? await appCameraUp() : false;
+    const appCam = onBadge && cameraOnScreen ? await appCameraUp() : false;
+    if (want.camera && !appCam && cameraOnScreen) cameraOnScreen = false;   // 못 띄웠으니 영상 안에 합친다
     if (want.camera && !appCam) {
       try { cam = await navigator.mediaDevices.getUserMedia({video: {...(want.cameraId ? {deviceId: {exact: want.cameraId}} : {}), width: {ideal: 640}, height: {ideal: 640}}}); }
       catch { say('카메라를 쓸 수 없어 화면만 녹화합니다.'); }
