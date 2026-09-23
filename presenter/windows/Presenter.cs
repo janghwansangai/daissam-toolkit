@@ -1264,17 +1264,17 @@ namespace BrowserSheriff {
       Native.ReleaseCapture();Native.SendMessage(Handle,0xA1,2,0);   // WM_NCLBUTTONDOWN · HTCAPTION
       try{File.WriteAllText(SpotFile,Location.X+","+Location.Y);}catch{}
     }
-    public void Place(){
+    public void Place(Screen wanted=null){
       string saved=null;try{saved=File.Exists(SpotFile)?File.ReadAllText(SpotFile):null;}catch{}
-      // 지금 쓰고 있는(녹화하는) 모니터에 띄운다. 예전에는 늘 주 모니터라 다른 모니터를
-      // 녹화하면 화면 밖에 떴다. 지난번 자리는 그 모니터 안일 때만 쓴다.
-      Rectangle area=Screen.FromPoint(Cursor.Position).WorkingArea;
+      // 녹화 중인 모니터(모르면 마우스가 있는 모니터)에 띄운다. 예전에는 늘 주 모니터라
+      // 다른 모니터를 녹화하면 화면 밖에 떴다. 지난번 자리는 그 모니터 안일 때만 쓴다.
+      Rectangle area=(wanted??Screen.FromPoint(Cursor.Position)).WorkingArea;
       System.Drawing.Point spot=new System.Drawing.Point(area.Right-Width-28,area.Bottom-Height-28);
       if(saved!=null){
         string[] parts=saved.Split(',');int x,y;
         if(parts.Length==2&&int.TryParse(parts[0],out x)&&int.TryParse(parts[1],out y)){
-          Rectangle wanted=new Rectangle(x,y,Width,Height);
-          if(area.IntersectsWith(wanted))spot=new System.Drawing.Point(x,y);
+          Rectangle box=new Rectangle(x,y,Width,Height);
+          if(area.IntersectsWith(box))spot=new System.Drawing.Point(x,y);
         }
       }
       Location=spot;
@@ -1404,23 +1404,23 @@ namespace BrowserSheriff {
       try{Native.SetWindowDisplayAffinity(Handle,Native.ExcludeFromCapture);}catch{}
     }
     protected override bool ShowWithoutActivation{get{return true;}}   // 누르던 창의 초점을 빼앗지 않는다
-    public void Show(string time,bool isPaused,bool camera){
+    public void Show(string time,bool isPaused,bool camera,Screen wanted=null){
       paused=isPaused;
       clock.Text=time;note.Text=(isPaused?"잠시 멈춤":"녹화 중")+(camera?" · 카메라":"");
       dot.BackColor=isPaused?Color.FromArgb(245,165,36):Color.FromArgb(255,90,74);
       pause.Text=isPaused?"▶":"❙❙";
-      if(!Visible){Place();Show();}
+      if(!Visible){Place(wanted);Show();}
     }
-    void Place(){
+    void Place(Screen wanted=null){
       string saved=null;try{saved=File.Exists(SpotFile)?File.ReadAllText(SpotFile):null;}catch{}
-      // 지금 쓰고 있는(녹화하는) 모니터에 띄운다. 지난번 자리는 그 모니터 안일 때만 쓴다.
-      Rectangle area=Screen.FromPoint(Cursor.Position).WorkingArea;
+      // 녹화 중인 모니터(모르면 마우스가 있는 모니터)에 띄운다. 지난번 자리는 그 안일 때만.
+      Rectangle area=(wanted??Screen.FromPoint(Cursor.Position)).WorkingArea;
       Point spot=new Point(area.Right-Width-28,area.Bottom-Height-28);
       if(saved!=null){
         string[] parts=saved.Split(',');int x,y;
         if(parts.Length==2&&int.TryParse(parts[0],out x)&&int.TryParse(parts[1],out y)){
-          Rectangle wanted=new Rectangle(x,y,Width,Height);
-          if(area.IntersectsWith(wanted))spot=new Point(x,y);
+          Rectangle box=new Rectangle(x,y,Width,Height);
+          if(area.IntersectsWith(box))spot=new Point(x,y);
         }
       }
       Location=spot;
@@ -1517,6 +1517,10 @@ namespace BrowserSheriff {
     RegisteredWaitHandle recorderWait;
     CameraForm cameraView;
     bool snipSave=false;
+    // 확장이 알려 준 '지금 녹화 중인 화면'. 표시기와 카메라 창을 그 모니터에 띄운다.
+    string recordDisplay="";
+    // 확장에서 1초마다 소식이 온다. 한동안 조용하면 녹화 창이 사라진 것이다 — 스스로 거둔다.
+    System.Windows.Forms.Timer badgeWatch;
     // 클릭 통과 핀 위에서 휠로 투명도를 바꾸기 위한 가로채기(통과 핀이 있을 때만 건다).
     IntPtr wheelHook=IntPtr.Zero;
     Native.Hook wheelCallback;
@@ -1866,9 +1870,14 @@ namespace BrowserSheriff {
           if(root.TryGetProperty("camera",out node))camera=node.GetString()=="1";
           if(root.TryGetProperty("cameraView",out node))cameraView=node.GetString();
           if(root.TryGetProperty("cameraName",out node))cameraName=node.GetString();
+          if(root.TryGetProperty("display",out node)){string where_=node.GetString();if(!string.IsNullOrEmpty(where_))recordDisplay=where_;}
         }
       }catch{return;}
-      if(action=="hide"){if(badge!=null&&!badge.IsDisposed){badge.Close();badge.Dispose();}badge=null;CloseCamera();PublishState();return;}
+      if(action=="hide"){
+        StopBadgeWatch();
+        if(badge!=null&&!badge.IsDisposed){badge.Close();badge.Dispose();}
+        badge=null;CloseCamera();recordDisplay="";PublishState();return;
+      }
       if(badge==null||badge.IsDisposed){
         badge=new BadgeForm();
         badge.Pressed=delegate(string which){
@@ -1877,20 +1886,65 @@ namespace BrowserSheriff {
           if(which=="stop"||which=="cancel"){if(badge!=null&&!badge.IsDisposed){badge.Close();badge.Dispose();}badge=null;PublishState();}
         };
       }
-      badge.Show(time,paused,camera);
+      badge.Show(time,paused,camera,ScreenForCapture(recordDisplay));
+      // 녹화 창이 말없이 사라지면 표시기와 카메라 창이 화면에 그대로 남는다. 12초 동안
+      // 소식이 없으면 스스로 거둔다.
+      StopBadgeWatch();
+      badgeWatch=new System.Windows.Forms.Timer{Interval=12000};
+      badgeWatch.Tick+=delegate{
+        StopBadgeWatch();
+        if(badge!=null&&!badge.IsDisposed){badge.Close();badge.Dispose();}
+        badge=null;CloseCamera();recordDisplay="";PublishState();
+      };
+      badgeWatch.Start();
       // 전체 화면 녹화에서 카메라를 켜면 동그란 카메라 창을 띄운다. 이 창은 녹화에 담긴다.
       // 값이 없는 알림(1초마다 오는 시간 갱신)에는 손대지 않는다. 건드리면 띄운 창이 바로 닫힌다.
       if(cameraView=="1")OpenCamera(cameraName);else if(cameraView!=null)CloseCamera();
       PublishState();
+    }
+    void StopBadgeWatch(){
+      if(badgeWatch==null)return;
+      try{badgeWatch.Stop();badgeWatch.Dispose();}catch{}
+      badgeWatch=null;
+    }
+    // 확장이 준 "<크롬이 부르는 이름>|<가로>x<세로>(픽셀)" 로 그 모니터를 찾는다.
+    // ① 픽셀 크기가 같은 모니터 ② 이름 안의 번호로 고른 모니터. 둘 다 아니면 null
+    // (그때는 마우스가 있는 모니터에 띄운다).
+    public static Screen ScreenForCapture(string text){
+      if(string.IsNullOrEmpty(text))return null;
+      try{
+        string[] parts=text.Split('|');
+        if(parts.Length>1){
+          string[] wh=parts[1].Split('x');
+          int w,h;
+          if(wh.Length==2&&int.TryParse(wh[0],out w)&&int.TryParse(wh[1],out h)&&w>0){
+            List<Screen> fitting=new List<Screen>();
+            foreach(Screen one in Screen.AllScreens)
+              if(Math.Abs(one.Bounds.Width-w)<=4&&Math.Abs(one.Bounds.Height-h)<=4)fitting.Add(one);
+            if(fitting.Count==1)return fitting[0];
+            // 똑같은 크기의 모니터가 여럿이면 마우스가 있는 쪽을 고른다.
+            if(fitting.Count>1){
+              System.Drawing.Point here=Cursor.Position;
+              foreach(Screen one in fitting)if(one.Bounds.Contains(here))return one;
+              return fitting[0];
+            }
+          }
+        }
+        string[] bits=parts[0].Split(':');
+        int at;
+        if(bits.Length>1&&int.TryParse(bits[1],out at)&&at>=0&&at<Screen.AllScreens.Length)return Screen.AllScreens[at];
+      }catch{}
+      return null;
     }
     void OpenCamera(string name){
       if(cameraView!=null&&!cameraView.IsDisposed)return;
       CameraForm view=new CameraForm();
       // 첫 그림이 들어와야 창을 띄우고 '띄웠다' 고 알린다. 확장은 그 표시를 보고 영상에
       // 합칠지 정한다. 늦게 뜨면 둘 다 보이므로, 2.2초 안에 못 열면 아예 포기한다.
+      Screen where_=ScreenForCapture(recordDisplay);
       view.Ready=delegate{
         if(cameraView!=view)return;
-        view.Place();view.Show();PublishState();
+        view.Place(where_);view.Show();PublishState();
       };
       cameraView=view;
       view.Begin(name);
@@ -2108,7 +2162,7 @@ namespace BrowserSheriff {
         for(int i=0;i<Keys2.Order.Length;i++)Native.UnregisterHotKey(help.Handle,i+1);
       }
       if(badge!=null&&!badge.IsDisposed){try{badge.Close();badge.Dispose();}catch{}}badge=null;
-      EndSnip();ClearPins();CloseCamera();if(wheelHook!=IntPtr.Zero){try{Native.UnhookWindowsHookEx(wheelHook);}catch{}wheelHook=IntPtr.Zero;}Stop();if(recorderWait!=null){recorderWait.Unregister(null);recorderWait=null;}if(commandWait!=null){commandWait.Unregister(null);commandWait=null;}try{File.Delete(StateFile);}catch{}if(activationWait!=null){activationWait.Unregister(null);activationWait=null;}SystemEvents.SessionEnding-=SessionEnding;SystemEvents.DisplaySettingsChanged-=DisplayChanged;SystemEvents.PowerModeChanged-=PowerChanged;SystemEvents.SessionSwitch-=SessionSwitch;if(tray!=null){tray.Visible=false;tray.Dispose();tray=null;}}
+      EndSnip();ClearPins();StopBadgeWatch();CloseCamera();if(wheelHook!=IntPtr.Zero){try{Native.UnhookWindowsHookEx(wheelHook);}catch{}wheelHook=IntPtr.Zero;}Stop();if(recorderWait!=null){recorderWait.Unregister(null);recorderWait=null;}if(commandWait!=null){commandWait.Unregister(null);commandWait=null;}try{File.Delete(StateFile);}catch{}if(activationWait!=null){activationWait.Unregister(null);activationWait=null;}SystemEvents.SessionEnding-=SessionEnding;SystemEvents.DisplaySettingsChanged-=DisplayChanged;SystemEvents.PowerModeChanged-=PowerChanged;SystemEvents.SessionSwitch-=SessionSwitch;if(tray!=null){tray.Visible=false;tray.Dispose();tray=null;}}
     protected override void ExitThreadCore(){exiting=true;Cleanup();if(help!=null)help.Dispose();base.ExitThreadCore();}
   }
 
@@ -2251,7 +2305,7 @@ namespace BrowserSheriff {
     static bool watchingRecorder=false;
     static void Recorder(JsonElement root){
       var payload=new Dictionary<string,string>();
-      foreach(string key in new[]{"action","time","paused","camera","cameraView","cameraName"}){
+      foreach(string key in new[]{"action","time","paused","camera","cameraView","cameraName","display"}){
         JsonElement node;
         if(root.TryGetProperty(key,out node)&&node.ValueKind==JsonValueKind.String)payload[key]=node.GetString();
       }

@@ -148,13 +148,43 @@ test('센 숫자와 녹화 창이 첫 장면에 담기지 않는다', () => {
   assert.match(rec.slice(order, begin), /setTimeout\(resolve, away \? 420 : 280\)/);
 });
 
+// 녹화 창이 사라지면 표시기와 카메라 창도 사라져야 한다(화면에 그대로 남던 문제).
+test('녹화 창이 닫히면 표시기·카메라 창을 내린다', () => {
+  const back = readFileSync('extension/background.js', 'utf8');
+  assert.match(back, /chrome\.windows\.onRemoved\.addListener/);
+  assert.match(back, /recordWindow=made\.id\|\|0;/);
+  assert.match(back, /port\.postMessage\(\{type:'recorder',action:'hide'\}\)/);
+  assert.match(readFileSync('extension/record.js', 'utf8'), /addEventListener\('pagehide'[\s\S]{0,120}action: 'hide'/);
+  // 확장이 말을 못 하고 죽어도 앱이 스스로 거둔다(12초 시계).
+  assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'), /Timer\(timeInterval:12,repeats:false\)/);
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'), /badgeWatch=new System\.Windows\.Forms\.Timer\{Interval=12000\}/);
+});
+
+// 카메라·표시기는 '녹화 중인 그 모니터' 에 뜬다. 확장이 화면 이름과 픽셀 크기를 알려 준다.
+test('녹화 중인 모니터를 찾아 카메라·표시기를 띄운다', () => {
+  const rec = readFileSync('extension/record.js', 'utf8');
+  // 줄이기(applyConstraints) 전에 원래 크기를 적어야 모니터를 알아볼 수 있다.
+  const mark = rec.indexOf('capturedDisplay = ');
+  const shrink = rec.indexOf('applyConstraints', mark);
+  assert.ok(mark > 0 && shrink > mark, '크기를 먼저 적고 나서 줄인다');
+  assert.match(rec, /display: capturedDisplay/);
+  // 앱까지 가는 길 세 곳
+  assert.match(readFileSync('extension/background.js', 'utf8'), /display:String\(m\.display\|\|''\)/);
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'), /"cameraView","cameraName","display"/);
+  const swift = readFileSync('presenter/macos/Presenter.swift', 'utf8');
+  assert.match(swift, /func screenForCapture\(_ text: String\) -> NSScreen\?/);
+  assert.match(swift, /place\(on:screenForCapture\(recordDisplay\)\)/);
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'), /public static Screen ScreenForCapture\(string text\)/);
+});
+
 // 표시기와 카메라 창은 지금 쓰는(녹화하는) 모니터에 뜬다.
 test('표시기와 카메라 창은 쓰고 있는 모니터에 뜬다', () => {
   const swift = readFileSync('presenter/macos/Presenter.swift', 'utf8');
   const cs = readFileSync('presenter/windows/Presenter.cs', 'utf8');
   assert.match(swift, /func screenInUse\(\) -> NSScreen\?/);
   assert.doesNotMatch(swift, /guard let screen=NSScreen\.main else \{ return \}\n\s*let saved=UserDefaults/);
-  assert.equal((cs.match(/Screen\.FromPoint\(Cursor\.Position\)\.WorkingArea/g) || []).length, 2);
+  assert.equal((cs.match(/\(wanted\?\?Screen\.FromPoint\(Cursor\.Position\)\)\.WorkingArea/g) || []).length, 2,
+    '표시기와 카메라 창 둘 다: 녹화 중인 모니터 → 없으면 마우스가 있는 모니터');
 });
 
 // 고르기 창이 뜨지도 않고 곧바로 돌아오면 다른 길로 한 번 더 띄운다. 창은 미리 앞으로.

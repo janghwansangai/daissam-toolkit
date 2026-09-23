@@ -18,7 +18,7 @@ export function createChrome(seed={}) {
   const chrome={storage:{local:area('local'),sync:area('sync'),session:area('session'),onChanged:changed},
     scripting:{executeScript:async({func,args=[]})=>[{result:func?{now:"곡 제목 — 가수",asked:args}:undefined}]},
     runtime:{id:'test',onMessage:messages,onStartup:start,getURL:p=>'chrome-extension://test/'+p,sendMessage:send,
-      getManifest:()=>({version:'0.36.0'}),setUninstallURL:async url=>{uninstallURL.value=url;},
+      getManifest:()=>({version:'0.36.1'}),setUninstallURL:async url=>{uninstallURL.value=url;},
       sendNativeMessage:async(name,message)=>{
         if(!native.available)throw new Error('Specified native messaging host not found.');
         nativeMessages.push({name,message});return {kind:'presenter',ok:true,launched:false,...native.presenter};
@@ -39,7 +39,7 @@ export function createChrome(seed={}) {
     action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}},
     sidePanel:{setPanelBehavior:async()=>{}},
     tabs:{zoom:new Map(),getZoom:async id=>chrome.tabs.zoom.get(id)??1,setZoom:async(id,value)=>{chrome.tabs.zoom.set(id,value);},query:async()=>[{id:1,url:'https://example.test/article?id=7',title:'테스트 문서'}],sendMessage:async(id,m)=>tabMessages.push(m),create:async info=>{opened.push(info);return {id:opened.length+1};},getCurrent:async()=>({id:1}),remove:async()=>{}},
-    windows:{create:async()=>{},getCurrent:async()=>({id:1}),remove:async()=>{},get:async id=>({id,type:'normal'}),update:async()=>{},WINDOW_ID_NONE:-1,onFocusChanged:{addListener(){}}}
+    windows:{create:async()=>{},getCurrent:async()=>({id:1}),remove:async()=>{},get:async id=>({id,type:'normal'}),update:async()=>{},WINDOW_ID_NONE:-1,onFocusChanged:{addListener(){}},onRemoved:{addListener(){}}}
   };
   return {chrome,data,rules,tabMessages,send,events:{start,alarmsEvent,idleEvent},alarmNames,nativePorts,native,opened,uninstallURL,nativeMessages,notified,offscreen,alarmNames2:alarmNames};
 }

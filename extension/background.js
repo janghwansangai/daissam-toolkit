@@ -361,6 +361,9 @@ async function quickCapture(mode){ return runCapture(mode,{notify:true,widen:tru
 // 녹화 중 화면에 뜨는 ‘녹화 표시기’ 는 발표 도우미 앱이 그린다. 그 창은 화면 녹화에 담기지
 // 않는다(맥 sharingType=none · 윈도우 WDA_EXCLUDEFROMCAPTURE). 표시기의 단추를 누르면
 // 앱이 알려 주므로, 녹화가 도는 동안에만 오래 열어 두는 통로를 하나 잡는다.
+// 녹화 창의 창 번호. 이 창이 닫히면(사용자가 ✕ 를 눌렀거나 크롬이 닫았거나) 표시기와
+// 카메라 창을 반드시 내린다 — 예전에는 그대로 화면에 남았다(사용자 보고).
+let recordWindow=0;
 let badgePort=null;
 function badgeConnect(){
   if(badgePort)return badgePort;
@@ -381,6 +384,15 @@ chrome.windows.onFocusChanged.addListener(id=>{
   chrome.windows.get(id).then(one=>{
     if(one?.type==='normal')chrome.storage.session.set({lastNormalWindow:id}).catch(()=>{});
   }).catch(()=>{});
+});
+// 녹화 창이 사라지면 앱의 표시기·카메라 창도 함께 내린다.
+chrome.windows.onRemoved.addListener(id=>{
+  if(!recordWindow||id!==recordWindow)return;
+  recordWindow=0;
+  const port=badgeConnect();
+  if(!port)return;
+  try{ port.postMessage({type:'recorder',action:'hide'}); port.disconnect(); }catch{}
+  badgePort=null;
 });
 chrome.idle.onStateChanged.addListener(s=>exclusive(async()=>{
   await ready;
@@ -461,7 +473,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       const port=badgeConnect();
       if(!port)return {sent:false};
       // cameraName: 전체 화면 녹화에서 앱이 같은 카메라로 동그란 창을 띄우게 한다.
-      try{ port.postMessage({type:'recorder',action:String(m.action||'update'),time:String(m.time||''),paused:m.paused?'1':'0',camera:m.camera?'1':'0',cameraView:m.cameraView?'1':'0',cameraName:String(m.cameraName||'')}); }
+      try{ port.postMessage({type:'recorder',action:String(m.action||'update'),time:String(m.time||''),paused:m.paused?'1':'0',camera:m.camera?'1':'0',cameraView:m.cameraView?'1':'0',cameraName:String(m.cameraName||''),display:String(m.display||'')}); }
       catch{ badgePort=null; return {sent:false}; }
       if(m.action==='hide'){ try{port.disconnect();}catch{} badgePort=null; }
       return {sent:true};
@@ -495,8 +507,9 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       // 전체 화면 녹화는 Chrome 고르기 창이 이 창 안쪽에 그려진다. 작게 열면 고를 것이
       // 하나도 안 보인다(사용자 보고). 크게 열고, 화면을 고른 뒤 녹화 창이 스스로 줄인다.
       const big=String(m.mode||'desktop')==='desktop';
-      await chrome.windows.create({url:chrome.runtime.getURL('record.html?'+query),type:'popup',
+      const made=await chrome.windows.create({url:chrome.runtime.getURL('record.html?'+query),type:'popup',
         width:big?860:400,height:big?660:(control?214:190),focused:true});
+      recordWindow=made.id||0;
       // 그 탭에서 사이드바를 다시 켜 둔다(열지는 않는다 — 열면 녹화 화면에 다시 끼어든다).
       if(away)setTimeout(()=>{away.back(false).catch(()=>{});},1500);
       return {opened:true};

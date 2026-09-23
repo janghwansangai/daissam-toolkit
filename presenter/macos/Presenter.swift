@@ -226,8 +226,8 @@ final class BadgePanel: NSPanel {
         if paused { dot.alphaValue=1 }
     }
     // 지난번에 둔 자리에 띄운다. 처음이면 오른쪽 아래.
-    func place() {
-        guard let screen=screenInUse() else { return }
+    func place(on wanted: NSScreen?=nil) {
+        guard let screen=wanted ?? screenInUse() else { return }
         let saved=UserDefaults.standard.string(forKey:BadgePanel.spotKey) ?? ""
         let parts=saved.split(separator:",").compactMap{Double($0)}
         var origin=NSPoint(x:screen.visibleFrame.maxX-frame.width-28,y:screen.visibleFrame.minY+28)
@@ -244,10 +244,36 @@ final class BadgePanel: NSPanel {
     override var canBecomeKey: Bool { false }
 }
 
-// 지금 쓰고 있는 모니터. 녹화를 시작하는 사람은 그 화면 위에서 누르므로, 표시기와 카메라
-// 창을 여기에 띄운다. 예전에는 늘 '주 모니터' 라 다른 모니터를 녹화하면 화면 밖에 떴다.
+// 지금 쓰고 있는 모니터. 표시기와 카메라 창을 여기에 띄운다(예전에는 늘 '주 모니터' 였다).
 func screenInUse() -> NSScreen? {
     NSScreen.screens.first(where:{ $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main
+}
+// 확장이 알려 준 '지금 녹화 중인 화면' 을 NSScreen 으로 바꾼다.
+// 받는 글: "<크롬이 부르는 이름>|<가로>x<세로>(픽셀)" 예) "screen:3:0|2560x1440"
+// ① 이름 안의 숫자가 디스플레이 번호와 맞으면 그 화면.
+// ② 아니면 픽셀 크기가 같은 화면. 같은 크기가 여럿이면(똑같은 모니터 두 대 같은 경우)
+//    그중 마우스가 있는 쪽을 고른다 — 방금 고르기 창에서 누른 그 화면일 가능성이 높다.
+// ③ 아무것도 못 고르면 nil. 그때는 마우스가 있는 화면에 띄운다.
+func screenForCapture(_ text: String) -> NSScreen? {
+    guard !text.isEmpty else { return nil }
+    let parts=text.split(separator:"|",maxSplits:1,omittingEmptySubsequences:false)
+    let name=String(parts.first ?? "")
+    for piece in name.split(separator:":") {
+        guard let number=UInt32(piece), number > 0 else { continue }
+        if let found=NSScreen.screens.first(where:{
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == number
+        }) { return found }
+    }
+    guard parts.count>1 else { return nil }
+    let size=parts[1].split(separator:"x").compactMap{ Double($0) }
+    guard size.count==2, size[0]>0 else { return nil }
+    let fitting=NSScreen.screens.filter{
+        let wide=$0.frame.width*$0.backingScaleFactor, tall=$0.frame.height*$0.backingScaleFactor
+        return abs(wide-size[0])<4 && abs(tall-size[1])<4
+    }
+    if fitting.count == 1 { return fitting[0] }
+    let here=NSEvent.mouseLocation
+    return fitting.first(where:{ $0.frame.contains(here) }) ?? fitting.first
 }
 
 // MARK: 녹화 중 동그란 카메라 창
@@ -320,8 +346,8 @@ final class CameraPanel: NSPanel {
         DispatchQueue.global(qos:.userInitiated).async { [weak self] in self?.session.startRunning() }
         return true
     }
-    func place() {
-        guard let screen=screenInUse() else { return }
+    func place(on wanted: NSScreen?=nil) {
+        guard let screen=wanted ?? screenInUse() else { return }
         let saved=UserDefaults.standard.string(forKey:CameraPanel.spotKey) ?? ""
         let parts=saved.split(separator:",").compactMap{Double($0)}
         var origin=NSPoint(x:screen.visibleFrame.maxX-side-28,y:screen.visibleFrame.minY+28)
@@ -382,6 +408,10 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
     var notice: NSPanel?
     var badge: BadgePanel?
     var camera: CameraPanel?
+    // 확장이 알려 준 '지금 녹화 중인 화면'. 표시기와 카메라 창을 그 모니터에 띄운다.
+    var recordDisplay=""
+    // 확장에서 1초마다 소식이 온다. 한동안 조용하면 녹화 창이 사라진 것이다 — 스스로 거둔다.
+    var badgeWatch: Timer?
     // 클릭 통과 핀 위에서 휠로 투명도를 바꾸기 위한 이벤트 가로채기(통과 핀이 있을 때만 건다).
     var wheelTap: CFMachPort?
     var wheelSource: CFRunLoopSource?
@@ -735,14 +765,27 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         else { DispatchQueue.main.async{[weak self] in self?.applyBadge(info)} }
     }
     func applyBadge(_ info:[String:String]){
-        if info["action"]=="hide" { badge?.dismiss(); badge=nil; closeCamera(); publishState(); return }
+        if info["action"]=="hide" {
+            badgeWatch?.invalidate(); badgeWatch=nil
+            badge?.dismiss(); badge=nil; closeCamera(); recordDisplay=""; publishState(); return
+        }
+        if let where_=info["display"], !where_.isEmpty { recordDisplay=where_ }
         if badge==nil {
             let panel=BadgePanel()
             panel.onButton={[weak self] which in self?.badgeTap(which)}
-            panel.place()
+            panel.place(on:screenForCapture(recordDisplay))
             panel.orderFrontRegardless()
             badge=panel
         }
+        // 녹화 창이 말없이 사라지면(창을 닫았거나 확장을 새로 읽었거나) 표시기와 카메라 창이
+        // 화면에 그대로 남았다. 12초 동안 소식이 없으면 스스로 거둔다.
+        badgeWatch?.invalidate()
+        let watch=Timer(timeInterval:12,repeats:false){ [weak self] _ in
+            guard let self=self else { return }
+            self.badge?.dismiss(); self.badge=nil; self.closeCamera(); self.recordDisplay=""; self.publishState()
+        }
+        RunLoop.main.add(watch,forMode:.common)
+        badgeWatch=watch
         badge?.update(time:info["time"] ?? "00:00",paused:info["paused"]=="1",camera:info["camera"]=="1")
         // 전체 화면 녹화에서 카메라를 켜면 동그란 카메라 창을 띄운다. 이 창은 녹화에 담긴다.
         // 값이 없는 알림(1초마다 오는 시간 갱신)에는 손대지 않는다. 예전에는 여기서 닫아 버려
@@ -762,7 +805,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             }
             return
         }
-        panel.place()
+        panel.place(on:screenForCapture(recordDisplay))
         panel.orderFrontRegardless()
         camera=panel
     }

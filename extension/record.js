@@ -25,6 +25,9 @@ const want = {
 // 읽고 띄운 창을 바로 닫는다(v0.33.0 에서 그랬다).
 let cameraOnScreen = false;
 const wantsCameraView = () => cameraOnScreen;
+// 지금 녹화 중인 화면이 어느 모니터인지 앱에 알려 줄 글. "<크롬이 부르는 이름>|<가로>x<세로>".
+// 앱은 이것으로 그 모니터를 찾아 카메라 창과 표시기를 거기에 띄운다.
+let capturedDisplay = '';
 const SIZES = {720: [1280, 720], 1080: [1920, 1080], 1440: [2560, 1440], 2160: [3840, 2160]};
 const RATE = {720: 2.5e6, 1080: 5e6, 1440: 8e6, 2160: 16e6};
 const NAMES = {desktop: '전체 화면', tab: '이 탭', area: '선택 영역(이 탭)'};
@@ -101,6 +104,9 @@ async function displayStream() {
     const picked = await choose(want.sound ? ['screen', 'window', 'tab', 'audio'] : ['screen', 'window', 'tab']);
     return desktopStream(picked.id, picked.audio && want.sound);
   }
+  // 줄이기 전에 원래 크기를 적어 둔다 — 앱이 이 크기로 어느 모니터인지 알아본다.
+  const first = stream.getVideoTracks()[0].getSettings();
+  capturedDisplay = (first.deviceId || '') + '|' + (first.width || 0) + 'x' + (first.height || 0);
   // 4K 화면을 그대로 담으면 너무 크다. 고른 해상도까지 줄여 달라고 부탁한다(안 되면 그대로).
   try { await stream.getVideoTracks()[0].applyConstraints({width: {max: maxWidth}, height: {max: maxHeight}}); } catch {}
   return stream;
@@ -237,7 +243,7 @@ function tick() {
   if (Date.now() - badgeAt > 900) {
     badgeAt = Date.now();
     badge('update', {time: text, paused: recorder?.state === 'paused', camera: want.camera,
-      cameraView: wantsCameraView(), cameraName: want.cameraName});
+      cameraView: wantsCameraView(), cameraName: want.cameraName, display: capturedDisplay});
   }
   if (want.limit && elapsed() >= want.limit * 60000) stop();
 }
@@ -268,7 +274,7 @@ async function start(fromClick) {
     // camera 는 표시기에 '카메라' 라고 적기 위한 것이고, cameraView 는 앱이 동그란 창을
     // 띄울지다. 탭·선택 영역 녹화에서는 그 창이 담기지 않으므로 영상 안에 합쳐 넣는다.
     const onBadge = await badge('show', {time: '00:00', camera: want.camera,
-      cameraView: wantsCameraView(), cameraName: want.cameraName});
+      cameraView: wantsCameraView(), cameraName: want.cameraName, display: capturedDisplay});
     const appCam = onBadge && cameraOnScreen ? await appCameraUp() : false;
     if (want.camera && !appCam && cameraOnScreen) cameraOnScreen = false;   // 못 띄웠으니 영상 안에 합친다
     if (want.camera && !appCam) {
@@ -369,6 +375,9 @@ $('open-privacy')?.addEventListener('click', async () => {
 });
 $('close').addEventListener('click', () => window.close());
 addEventListener('beforeunload', e => { if (recorder && recorder.state !== 'inactive') { e.preventDefault(); e.returnValue = ''; } });
+// 창이 닫히는 순간에도 표시기·카메라 창을 내려 달라고 한 번 더 알린다. 닿지 못해도
+// 서비스 워커가 창이 사라진 것을 보고 내리고, 앱에도 스스로 그만두는 시계가 있다.
+addEventListener('pagehide', () => { chrome.runtime.sendMessage({type: 'recorder-badge', action: 'hide'}).catch(() => {}); });
 // 탭·선택 영역은 고르기 창 없이 바로 시작한다. 전체 화면은 '화면 고르기' 를 누른 그 손길로
 // 열어야 Chrome 이 고르기 창을 제대로 띄운다 — 그래서 여기서는 단추만 보여 준다.
 if (want.mode === 'desktop') {
