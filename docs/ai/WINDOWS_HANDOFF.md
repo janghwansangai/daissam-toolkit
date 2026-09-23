@@ -69,6 +69,7 @@ gh pr create --base main --head windows --title "윈도우: ..." --body "(9장 �
 3. **`main` 으로 직접 push 하지 않는다.** 합치는 것은 맥 세션이 PR 을 보고 한다.
 4. 충돌이 나면 혼자 풀지 말고 어떤 파일이 겹쳤는지 알린다(같은 파일을 양쪽이 고친 것이므로 규칙이 깨진 것이다).
 5. 버전 번호(`package.json`·`manifest.json`·`Presenter.csproj`·`build.sh` 의 plist)는 **맥 세션만** 올린다.
+   v0.35.1 부터 `Presenter.csproj` 에 `<InformationalVersion>` 을 두지 않는다 — 0.31.0 에 박힌 채 남아 `Application.ProductVersion` 이 계속 0.31.0 을 돌려주고 있었다(윈도우 세션이 찾아냈다). 이제 `<Version>` 을 따라간다.
 6. 작업 단위가 끝나면 `docs/ai/HANDOFF.md` 의 **윈도우 절**만 갱신해 함께 커밋한다.
 
 ## 4. 절대 바꾸면 안 되는 것 (계약)

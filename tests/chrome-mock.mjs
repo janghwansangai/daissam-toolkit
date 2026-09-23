@@ -18,7 +18,7 @@ export function createChrome(seed={}) {
   const chrome={storage:{local:area('local'),sync:area('sync'),session:area('session'),onChanged:changed},
     scripting:{executeScript:async({func,args=[]})=>[{result:func?{now:"곡 제목 — 가수",asked:args}:undefined}]},
     runtime:{id:'test',onMessage:messages,onStartup:start,getURL:p=>'chrome-extension://test/'+p,sendMessage:send,
-      getManifest:()=>({version:'0.35.0'}),setUninstallURL:async url=>{uninstallURL.value=url;},
+      getManifest:()=>({version:'0.35.1'}),setUninstallURL:async url=>{uninstallURL.value=url;},
       sendNativeMessage:async(name,message)=>{
         if(!native.available)throw new Error('Specified native messaging host not found.');
         nativeMessages.push({name,message});return {kind:'presenter',ok:true,launched:false,...native.presenter};

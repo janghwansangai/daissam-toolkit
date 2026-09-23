@@ -128,6 +128,20 @@ test('첫 고르기가 헛돌면 확장 고르기 창으로 한 번 더 띄운�
   assert.match(readFileSync('extension/background.js', 'utf8'), /width:big\?860:400,height:big\?660/);
 });
 
+// 윈도우 앱이 자기 버전을 옳게 말해야 한다. InformationalVersion 이 0.31.0 에 박혀 있어
+// 0.34.0 을 깔고도 트레이·state.json·점검표가 모두 0.31.0 이라고 했다(윈도우 세션이 찾음).
+test('윈도우 버전 표시는 <Version> 을 따라가고, 클릭 통과는 투명도 변경에 살아남는다', () => {
+  const proj = readFileSync('presenter/windows/Presenter.csproj', 'utf8');
+  const version = proj.match(/<Version>([^<]+)<\/Version>/)[1];
+  assert.doesNotMatch(proj, /<InformationalVersion>/, '고정값을 두면 또 멈춘다');
+  assert.match(proj, new RegExp('<FileVersion>' + version.replace(/\./g, '\\.') + '\\.0</FileVersion>'));
+  const cs = readFileSync('presenter/windows/Presenter.cs', 'utf8');
+  assert.match(cs, /public static string Ver \{get\{return VerOf\(SelfInfo\);\}\}/);
+  assert.doesNotMatch(cs, /version=Application\.ProductVersion/, 'state.json 은 FileVersion 을 쓴다');
+  // WinForms 는 Opacity 를 바꿀 때 ExStyle 을 CreateParams 값으로 다시 쓴다.
+  assert.match(cs, /protected override CreateParams CreateParams \{[\s\S]{0,140}if\(through\)p\.ExStyle\|=0x20;/);
+});
+
 // 디스플레이가 바뀌었다는 모달 알림이 발표 중이 아닐 때도 떠서 일을 막았다(윈도우).
 test('윈도우 디스플레이 알림은 발표 중일 때만, 막지 않는 알림으로', () => {
   const cs = readFileSync('presenter/windows/Presenter.cs', 'utf8');
