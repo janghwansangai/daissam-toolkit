@@ -120,6 +120,16 @@ test('도크 창에서 불러도 찍을 탭을 찾는다', () => {
   assert.match(readFileSync('extension/background.js', 'utf8'), /chrome\.windows\.onFocusChanged\.addListener/);
 });
 
+// 도크의 ☰ 는 사이드바를 다시 여는 단추다. 팝업이라 '마지막 초점 창' 이 도크 자신이어서
+// 늘 실패하고 안내만 띄웠다(사용자 보고).
+test('도크의 ☰ 는 보통 창을 찾아 사이드바를 연다', () => {
+  const dock = readFileSync('extension/dock.js', 'utf8');
+  assert.match(dock, /async function browserWindow\(\)/);
+  assert.match(dock, /chrome\.windows\.getAll\(\{windowTypes: \['normal'\]\}\)/);
+  assert.match(dock, /await chrome\.sidePanel\.open\(\{windowId\}\)/);
+  assert.doesNotMatch(dock, /lastFocusedWindow: true/, '도크에서는 쓸 수 없는 조건이다');
+});
+
 // 선택 영역은 브라우저 안에 갇히지 않아야 한다(다른 앱·다른 모니터).
 test('도크와 캡처 탭에서 화면 전체를 끌어 고를 수 있다', () => {
   const panel = readFileSync('extension/panel.js', 'utf8');

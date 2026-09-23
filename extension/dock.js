@@ -39,13 +39,27 @@ act('d-area', async () => {
   catch { await api('capture', {mode: 'area', after: 'both', notify: true}); }
 }, '화면에서 끌어 고르세요 · Esc 로 그만둡니다');
 act('d-full', () => api('capture', {mode: 'full', after: 'both', notify: true}), '페이지를 내려가며 찍는 중…');
-// 사이드바 다시 열기. 누른 그 손길로 바로 열어야 Chrome 이 허락한다.
+// 사이드바(다있쌤 패널) 다시 열기. 캡처·녹화 때 저절로 닫히므로 여기서 도로 연다.
+// 누른 그 손길로 바로 열어야 Chrome 이 허락한다.
+// 이 창은 팝업이라 '마지막 초점 창' 이 도크 자신이다. 보통 창을 따로 찾아야 한다 —
+// 예전에는 그것을 놓쳐 이 단추가 늘 실패하고 안내만 띄웠다(사용자 보고).
+async function browserWindow() {
+  let last = 0;
+  try { last = (await chrome.storage.session.get('lastNormalWindow')).lastNormalWindow || 0; } catch {}
+  const windows = await chrome.windows.getAll({windowTypes: ['normal']});
+  if (!windows.length) return 0;
+  const found = windows.find(one => one.id === last) || windows.find(one => one.focused) || windows[windows.length - 1];
+  return found?.id || 0;
+}
 $('d-panel').addEventListener('click', async () => {
   try {
-    const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true, windowType: 'normal'});
-    if (!tab) throw new Error('브라우저 창을 찾지 못했습니다.');
-    await chrome.sidePanel.open({windowId: tab.windowId});
-  } catch { tip('확장 아이콘을 눌러 사이드바를 열어 주세요.'); }
+    const windowId = await browserWindow();
+    if (!windowId) throw new Error('브라우저 창이 없습니다. 창을 하나 열어 주세요.');
+    await chrome.sidePanel.open({windowId});
+    tip('사이드바를 열었습니다.');
+  } catch (error) {
+    tip(error?.message?.includes('user gesture') ? '확장 아이콘(✳)을 눌러 사이드바를 열어 주세요.' : (error.message || '사이드바를 열지 못했습니다.'));
+  }
 });
 $('d-close').addEventListener('click', () => window.close());
 
