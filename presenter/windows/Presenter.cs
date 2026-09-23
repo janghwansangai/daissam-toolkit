@@ -1140,6 +1140,14 @@ namespace BrowserSheriff {
     void Fold(){if(cropping||drawing)return;folded=!folded;Refit();host.PlacePins();}
     void ResetAll(){zoom=1;turns=0;flipped=false;folded=false;cropping=false;Opacity=1;SetThrough(false);Rebuild();host.PlacePins();}
     // 통과를 켜면 이 핀은 더 이상 클릭을 받지 않는다. 되돌리는 길은 트레이 메뉴뿐이다.
+    // WinForms 는 Opacity 를 건드릴 때마다 GWL_EXSTYLE 를 이 CreateParams 값으로 통째로
+    // 다시 쓴다. SetThrough 가 손으로 켜 둔 WS_EX_TRANSPARENT 는 그 자리에서 지워졌다 —
+    // 통과 핀 위에서 휠을 **한 칸** 굴리는 순간(투명도 변경) 클릭 통과가 꺼져 버렸다.
+    // 실기기 확인: 굴리기 전 exStyle=0x00010028, 굴린 뒤 0x00090008 (0x20 이 사라짐).
+    // 여기에 실어 두면 WinForms 가 다시 써도 통과 비트가 살아남는다.
+    protected override CreateParams CreateParams {
+      get{CreateParams p=base.CreateParams;if(through)p.ExStyle|=0x20;return p;}
+    }
     public void SetThrough(bool wanted){
       through=wanted;
       if(wanted){cropping=false;if(drawing)EndDraw(false);}
@@ -1537,9 +1545,40 @@ namespace BrowserSheriff {
     }
     public static string CommandFile {get{return Path.Combine(Box,"command.json");}}
     public static string StateFile {get{return Path.Combine(Box,"state.json");}}
+    // 화면에 보이고 서로 견주는 버전. Application.ProductVersion 은 csproj 의
+    // InformationalVersion 을 돌려주는데 그 값이 0.31.0 에 멈춰 있어, 0.34.0 을 깔고도
+    // 앱과 state.json 과 점검표가 모두 “0.31.0” 이라고 말했다. 그래서 옛 앱이 그대로
+    // 남아 있어도 점검표의 ‘설치된 앱이 최신인지’ 가 늘 정상으로 나왔다(실제로 확인).
+    // FileVersion 은 csproj 의 <Version> 을 따라 제대로 올라가므로 그쪽을 쓴다.
+    public static string Ver {get{return VerOf(SelfInfo);}}
+    // 같은 버전이라도 다른 빌드인지 가리는 값. 점검표의 최신 여부는 이것으로 견준다.
+    public static string Build {
+      get{
+        System.Diagnostics.FileVersionInfo me=SelfInfo;
+        return (me==null?"":me.FileVersion+" "+me.ProductVersion);
+      }
+    }
+    static System.Diagnostics.FileVersionInfo SelfInfo {
+      get{try{return System.Diagnostics.FileVersionInfo.GetVersionInfo(Application.ExecutablePath);}catch{return null;}}
+    }
+    // 0.34.0.0 → 0.34.0. 읽지 못하면 예전처럼 ProductVersion 을 쓴다.
+    public static string VerOf(System.Diagnostics.FileVersionInfo info){
+      try{
+        string file=(info==null?null:info.FileVersion);
+        if(!string.IsNullOrEmpty(file)){
+          string[] bits=file.Split('.');
+          if(bits.Length>=3)return bits[0]+"."+bits[1]+"."+bits[2];
+          return file;
+        }
+      }catch{}
+      return Application.ProductVersion.Split('+')[0];
+    }
+    public static string BuildOf(System.Diagnostics.FileVersionInfo info){
+      return (info==null?"":info.FileVersion+" "+info.ProductVersion);
+    }
     RegisteredWaitHandle commandWait;
     public Presenter(EventWaitHandle activation,EventWaitHandle command,EventWaitHandle recorder,bool startRequested,bool quiet){
-      tray=new NotifyIcon{Icon=SystemIcons.Information,Text="다있쌤 · 발표 v"+(Application.ProductVersion.Split('+')[0]),Visible=true};
+      tray=new NotifyIcon{Icon=SystemIcons.Information,Text="다있쌤 · 발표 v"+(Presenter.Ver),Visible=true};
       ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("발표 시작",null,delegate{Start();});menu.Items.Add("발표 종료 · 원래 크기",null,delegate{Stop();});menu.Items.Add("집중 모드 켜기 · 끄기",null,delegate{ToggleFocus();});menu.Items.Add(new ToolStripSeparator());menu.Items.Add("화면 조각 잘라 붙이기",null,delegate{BeginSnip();});menu.Items.Add("화면 조각 저장하기 · 복사",null,delegate{BeginSnip(true);});menu.Items.Add("클립보드 붙이기",null,delegate{PinClipboard();});menu.Items.Add("녹화 카메라 창 미리 보기",null,delegate{PreviewCamera();});menu.Items.Add("클릭 통과 켜기 · 끄기",null,delegate{ThroughPins();});menu.Items.Add("클릭 통과 모두 해제",null,delegate{UnlockPins();});menu.Items.Add("핀 모두 닫기",null,delegate{ClearPins();});menu.Items.Add(new ToolStripSeparator());menu.Items.Add("사용 방법",null,delegate{ShowHelp();});menu.Items.Add("앱 종료",null,delegate{ExitThread();});tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowHelp();};
       combos=Keys2.Read(StoredKeys());
       Application.ApplicationExit+=delegate{Cleanup();};SystemEvents.SessionEnding+=SessionEnding;SystemEvents.DisplaySettingsChanged+=DisplayChanged;SystemEvents.PowerModeChanged+=PowerChanged;SystemEvents.SessionSwitch+=SessionSwitch;
@@ -1608,7 +1647,7 @@ namespace BrowserSheriff {
     static string StoredKeys(){try{return File.ReadAllText(KeyFile,Encoding.UTF8);}catch{return "";}}
     void MakeHelp(){
       if(help!=null&&!help.IsDisposed)return;
-      help=new HelpForm{Text="다있쌤 · 발표 도우미 v"+(Application.ProductVersion.Split('+')[0])+"   만든이 다있쌤 로디",Size=new Size(452,520),StartPosition=FormStartPosition.CenterScreen,BackColor=Color.FromArgb(250,251,245),Font=new Font("Malgun Gothic",10),MaximizeBox=false};
+      help=new HelpForm{Text="다있쌤 · 발표 도우미 v"+(Presenter.Ver)+"   만든이 다있쌤 로디",Size=new Size(452,520),StartPosition=FormStartPosition.CenterScreen,BackColor=Color.FromArgb(250,251,245),Font=new Font("Malgun Gothic",10),MaximizeBox=false};
       Label title=new Label{Text="화면은 크게, 설명은 편안하게.",Location=new Point(24,22),Size=new Size(380,35),Font=new Font("Malgun Gothic",15,FontStyle.Bold)};
       helpBody=new Label{Text=HelpText(),Location=new Point(24,68),Size=new Size(396,318)};
       Label body=helpBody;
@@ -1761,7 +1800,7 @@ namespace BrowserSheriff {
         File.WriteAllText(StateFile,JsonSerializer.Serialize(new{
           presenting=active,focus=focus,pins=pins.Count,through=through,hotkeys=active?4:0,keys=Keys2.Text(combos),badge=badge!=null&&!badge.IsDisposed,
           camera=cameraView!=null&&!cameraView.IsDisposed&&cameraView.Visible,
-          version=Application.ProductVersion.Split('+')[0],started=DateTime.Now.ToString("HH:mm:ss")}),Encoding.UTF8);
+          version=Presenter.Ver,started=DateTime.Now.ToString("HH:mm:ss")}),Encoding.UTF8);
       }catch{}
     }
     // 이벤트로 깨어나 명령 파일을 읽는다. 값은 확장이 모두 문자열로 보낸다.
@@ -2432,7 +2471,7 @@ namespace BrowserSheriff {
     static void SelfCheck(){
       System.Text.StringBuilder r=new System.Text.StringBuilder();
       r.AppendLine("다있쌤 · 발표 도우미 점검");
-      r.AppendLine("버전 "+Application.ProductVersion.Split('+')[0]+"   "+DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+      r.AppendLine("버전 "+Presenter.Ver+"   "+DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
       r.AppendLine(new string('-',58));
 
       string dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BrowserSheriff");
@@ -2441,9 +2480,12 @@ namespace BrowserSheriff {
       Line(r,"앱 파일 설치",copied,copied?target:"Install.cmd 를 먼저 실행하세요.");
       if(copied){
         var info=System.Diagnostics.FileVersionInfo.GetVersionInfo(target);
-        bool same=info.ProductVersion!=null&&info.ProductVersion.Split('+')[0]==Application.ProductVersion.Split('+')[0];
-        Line(r,"설치된 앱이 최신인지",same,"설치본 "+info.ProductVersion+" / 지금 실행 "+Application.ProductVersion
-          +(same?"":"\r\n           → Install.cmd 를 다시 실행하세요."));
+        // 예전에는 양쪽 ProductVersion 의 '+' 앞만 견줬다. 그 값은 InformationalVersion
+        // 이라 0.31.0 에 멈춰 있었고, 0.31.0 짜리 옛 앱이 깔려 있어도 늘 '정상' 이 나왔다.
+        // 버전이 올라갔는지(FileVersion)와 같은 빌드인지(+커밋)를 함께 본다.
+        bool same=Presenter.BuildOf(info)==Presenter.Build;
+        Line(r,"설치된 앱이 최신인지",same,"설치본 "+Presenter.VerOf(info)+" / 지금 실행 "+Presenter.Ver
+          +(same?"":"\r\n           → 설치본과 지금 실행 중인 파일이 다른 빌드입니다. Install.cmd 를 다시 실행하세요."));
       }
 
       string manifestPath=Path.Combine(dir,"native-host.json");
@@ -2469,9 +2511,9 @@ namespace BrowserSheriff {
         string state="";try{state=File.ReadAllText(Presenter.StateFile);}catch{}
         string running=null;
         try{using(JsonDocument d=JsonDocument.Parse(state)){JsonElement n;if(d.RootElement.TryGetProperty("version",out n))running=n.GetString();}}catch{}
-        bool fresh=running!=null&&running==Application.ProductVersion.Split('+')[0];
+        bool fresh=running!=null&&running==Presenter.Ver;
         Line(r,"지금 떠 있는 앱의 버전",fresh,
-          (running==null?"옛 버전입니다(버전을 알리지 않습니다).":"실행 중 "+running+" / 지금 점검 "+Application.ProductVersion.Split('+')[0])
+          (running==null?"옛 버전입니다(버전을 알리지 않습니다).":"실행 중 "+running+" / 지금 점검 "+Presenter.Ver)
           +(fresh?"":"\r\n           → 트레이에서 ‘앱 종료’ 후 Install.cmd 를 다시 실행하세요."));
         Line(r,"앱이 알려 온 상태",true,state);
       }
@@ -2523,7 +2565,7 @@ namespace BrowserSheriff {
           name=NativeHost.HostName,description="다있쌤 클립보드 도우미",path=target,type="stdio",
           allowed_origins=new[]{"chrome-extension://"+NativeHost.ExtensionID+"/"}}));
         using(RegistryKey key=Registry.CurrentUser.CreateSubKey(@"Software\Google\Chrome\NativeMessagingHosts\"+NativeHost.HostName)){key.SetValue("",manifestPath);}
-        MessageBox.Show("설치했습니다 — 버전 "+Application.ProductVersion.Split('+')[0]+"\r\n\r\n"
+        MessageBox.Show("설치했습니다 — 버전 "+Presenter.Ver+"\r\n\r\n"
           +"Chrome 을 다시 시작한 뒤 확장의 발표 탭에서 쓸 수 있습니다.\r\n"
           +"잘 안 되면 Check.cmd 를 실행해 어디서 막히는지 확인하세요.");return;
       }
