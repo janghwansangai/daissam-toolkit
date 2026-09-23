@@ -374,6 +374,14 @@ function badgeConnect(){
   port.postMessage({type:'recorder-watch'});
   return port;
 }
+// 마지막으로 쓰던 '보통' 창을 기억한다. 도크 창(팝업)에서 캡처를 부르면 어느 탭을 찍을지
+// 알 길이 없어 쓰는 값이다(예전에는 그 자리에서 '탭을 찾지 못했습니다' 로 끝났다).
+chrome.windows.onFocusChanged.addListener(id=>{
+  if(id===chrome.windows.WINDOW_ID_NONE)return;
+  chrome.windows.get(id).then(one=>{
+    if(one?.type==='normal')chrome.storage.session.set({lastNormalWindow:id}).catch(()=>{});
+  }).catch(()=>{});
+});
 chrome.idle.onStateChanged.addListener(s=>exclusive(async()=>{
   await ready;
   if(s==='active')return;

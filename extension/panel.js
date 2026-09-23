@@ -712,7 +712,7 @@ try{$('version').textContent='v'+chrome.runtime.getManifest().version;}catch{$('
 // 사진(웹페이지·화면)과 영상(화면 녹화). 무거운 일은 서비스 워커(capture-core.js)와
 // 녹화 창(record.js)이 하고, 여기서는 고르고 부르기만 한다.
 const CAP_DEFAULTS={after:'editor',format:'png',quality:92,delay:3,hideFixed:true,hideScrollbar:true,hideSide:true};
-const REC_DEFAULTS={mode:'desktop',camera:false,cameraId:'',cameraName:'',camMix:false,mic:true,micId:'',controlBar:true,res:'1080',format:'mp4',countdown:3,limit:0,sound:true};
+const REC_DEFAULTS={mode:'desktop',camera:false,cameraId:'',cameraName:'',mic:true,micId:'',controlBar:true,res:'1080',format:'mp4',countdown:3,limit:0,sound:true};
 let capOptions={...CAP_DEFAULTS},recOptions={...REC_DEFAULTS};
 function capSay(text){$('cap-status').textContent=text||'';}
 async function loadCapture(){
@@ -723,7 +723,7 @@ async function loadCapture(){
   $('cap-format').value=capOptions.format;$('cap-quality').value=String(capOptions.quality);$('cap-quality-out').textContent=String(capOptions.quality);
   $('cap-hide-fixed').checked=capOptions.hideFixed!==false;$('cap-hide-bar').checked=capOptions.hideScrollbar!==false;
   $('cap-hide-side').checked=capOptions.hideSide!==false;
-  $('rec-cam').checked=!!recOptions.camera;$('rec-cam-mix').checked=!!recOptions.camMix;$('rec-mic').checked=recOptions.mic!==false;
+  $('rec-cam').checked=!!recOptions.camera;$('rec-mic').checked=recOptions.mic!==false;
   $('rec-control').setAttribute('aria-checked',String(recOptions.controlBar!==false));
   $('rec-res').value=String(recOptions.res);$('rec-format').value=recOptions.format;
   $('rec-count').value=String(recOptions.countdown);$('rec-limit').value=String(recOptions.limit);$('rec-sound').checked=recOptions.sound!==false;
@@ -770,7 +770,12 @@ event('cap-area','click',()=>runCapture('area','','페이지에서 끌어 캡처
 event('cap-delay','click',()=>runCapture('delay','',`${$('cap-delay-sec').value}초 뒤에 찍습니다. 원하는 화면을 띄워 두세요(확장 아이콘에 남은 초가 보입니다).`));
 event('cap-ocr','click',()=>runCapture('ocr','','글자를 뽑을 곳을 페이지에서 끌어 고르세요.'));
 // 도크의 빠른 캡처 두 개: 설정과 상관없이 늘 폴더 저장 + 클립보드 복사(바로 붙여넣기).
-event('dock-cap-area','click',()=>runCapture('area','both','페이지에서 끌어 고르세요 — 캡처이미지 폴더에 저장하고 복사합니다.'));
+// 도크의 선택 영역은 화면 전체에서 고른다(다른 앱·다른 모니터도). 앱이 없으면 탭에서 고른다.
+event('dock-cap-area','click',async()=>{
+  capSay('화면에서 끌어 고르세요 · Esc 로 그만둡니다. 다른 앱·다른 모니터도 됩니다.');
+  try{ await api('presenter-command',{action:'snip-save'}); capSay('고른 곳을 ‘캡처이미지’ 폴더에 저장하고 복사합니다.'); }
+  catch{ await runCapture('area','both','페이지에서 끌어 고르세요 — 캡처이미지 폴더에 저장하고 복사합니다.'); }
+});
 event('dock-cap-full','click',()=>runCapture('full','both','페이지를 내려가며 찍는 중… — 캡처이미지 폴더에 저장하고 복사합니다.'));
 // 바탕화면·다른 앱 창. 사이드바에서 누른 그 손길로 바로 화면 고르기 창을 띄워야 해서
 // (getDisplayMedia 는 누른 직후에만 된다) 서비스 워커가 아니라 여기서 찍는다.
@@ -791,6 +796,13 @@ event('cap-screen','click',async()=>{
   const result=await deliver(blob,capOptions.after,{mode:'screen',title:'전체 화면'});
   capSay(result.after==='editor'?(result.fallback?'편집기로 열었습니다 — '+result.fallback:'편집기로 열었습니다.')
     :[result.path?'캡처이미지 폴더에 저장했습니다.':'',result.copied?'클립보드에 복사했습니다.':''].join(' '));
+});
+// 브라우저 밖까지 끌어 고른다. 발표 도우미 앱이 화면을 직접 찍어 폴더 저장 + 복사한다.
+// (확장의 captureVisibleTab 은 탭 안만 찍을 수 있어 다른 앱·다른 모니터를 담지 못한다.)
+event('cap-screen-area','click',async()=>{
+  capSay('화면에서 끌어 고르세요 · Esc 로 그만둡니다. 다른 모니터도 됩니다.');
+  try{ await api('presenter-command',{action:'snip-save'}); capSay('고른 곳을 ‘캡처이미지’ 폴더에 저장하고 복사합니다.'); }
+  catch(error){ capSay(error.message); }
 });
 event('cap-local','click',()=>chrome.tabs.create({url:chrome.runtime.getURL('capture.html#new')}));
 event('cap-keys','click',()=>chrome.tabs.create({url:'chrome://extensions/shortcuts'}));
@@ -816,14 +828,14 @@ function checkRecFormat(){
 }
 async function saveRecord(){
   // 카메라 이름도 함께 둔다. 전체 화면 녹화에서는 발표 도우미 앱이 같은 카메라를 열어야 한다.
-  recOptions={...recOptions,camera:$('rec-cam').checked,cameraId:$('rec-cam-dev').value,cameraName:$('rec-cam-dev').selectedOptions[0]?.textContent||'',camMix:$('rec-cam-mix').checked,
+  recOptions={...recOptions,camera:$('rec-cam').checked,cameraId:$('rec-cam-dev').value,cameraName:$('rec-cam-dev').selectedOptions[0]?.textContent||'',
     mic:$('rec-mic').checked,micId:$('rec-mic-dev').value,
     controlBar:$('rec-control').getAttribute('aria-checked')==='true',res:$('rec-res').value,format:$('rec-format').value,
     countdown:Number($('rec-count').value)||0,limit:Number($('rec-limit').value)||0,sound:$('rec-sound').checked};
   await chrome.storage.local.set({recordOptions:recOptions});
 }
 for(const tile of document.querySelectorAll('.cap-tile.rec'))tile.addEventListener('click',async()=>{recOptions.mode=tile.dataset.rec;showRecMode();await saveRecord();});
-for(const id of ['rec-cam','rec-cam-mix','rec-cam-dev','rec-mic','rec-mic-dev','rec-res','rec-format','rec-count','rec-limit','rec-sound'])event(id,'change',saveRecord);
+for(const id of ['rec-cam','rec-cam-dev','rec-mic','rec-mic-dev','rec-res','rec-format','rec-count','rec-limit','rec-sound'])event(id,'change',saveRecord);
 event('rec-control','click',async()=>{const next=$('rec-control').getAttribute('aria-checked')!=='true';$('rec-control').setAttribute('aria-checked',String(next));await saveRecord();});
 event('rec-more','click',()=>{const box=$('rec-more-box');box.hidden=!box.hidden;$('rec-more').setAttribute('aria-expanded',String(!box.hidden));$('rec-more').textContent=box.hidden?'더 보기 ›':'접기 ‹';});
 // 장치 이름은 한 번이라도 카메라·마이크를 허용한 뒤에만 보인다. 그 전에는 ‘카메라 1’ 처럼 적는다.

@@ -227,14 +227,14 @@ final class BadgePanel: NSPanel {
     }
     // 지난번에 둔 자리에 띄운다. 처음이면 오른쪽 아래.
     func place() {
-        guard let screen=NSScreen.main else { return }
+        guard let screen=screenInUse() else { return }
         let saved=UserDefaults.standard.string(forKey:BadgePanel.spotKey) ?? ""
         let parts=saved.split(separator:",").compactMap{Double($0)}
         var origin=NSPoint(x:screen.visibleFrame.maxX-frame.width-28,y:screen.visibleFrame.minY+28)
+        // 지난번 자리는 '지금 쓰는 그 화면 안' 일 때만 쓴다(다른 모니터를 녹화하면 그쪽에 띄운다).
         if parts.count==2 {
             let wanted=NSPoint(x:parts[0],y:parts[1])
-            // 저장해 둔 자리가 지금 화면 안에 있을 때만 쓴다(모니터가 바뀌었을 수 있다).
-            if NSScreen.screens.contains(where:{ $0.visibleFrame.contains(NSPoint(x:wanted.x+20,y:wanted.y+20)) }) { origin=wanted }
+            if screen.visibleFrame.contains(NSPoint(x:wanted.x+20,y:wanted.y+20)) { origin=wanted }
         }
         setFrameOrigin(origin)
     }
@@ -242,6 +242,12 @@ final class BadgePanel: NSPanel {
     override func mouseUp(with event: NSEvent) { super.mouseUp(with:event); remember() }
     func dismiss() { blink?.invalidate(); blink=nil; orderOut(nil) }
     override var canBecomeKey: Bool { false }
+}
+
+// 지금 쓰고 있는 모니터. 녹화를 시작하는 사람은 그 화면 위에서 누르므로, 표시기와 카메라
+// 창을 여기에 띄운다. 예전에는 늘 '주 모니터' 라 다른 모니터를 녹화하면 화면 밖에 떴다.
+func screenInUse() -> NSScreen? {
+    NSScreen.screens.first(where:{ $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main
 }
 
 // MARK: 녹화 중 동그란 카메라 창
@@ -315,13 +321,14 @@ final class CameraPanel: NSPanel {
         return true
     }
     func place() {
-        guard let screen=NSScreen.main else { return }
+        guard let screen=screenInUse() else { return }
         let saved=UserDefaults.standard.string(forKey:CameraPanel.spotKey) ?? ""
         let parts=saved.split(separator:",").compactMap{Double($0)}
         var origin=NSPoint(x:screen.visibleFrame.maxX-side-28,y:screen.visibleFrame.minY+28)
+        // 지난번 자리는 '지금 쓰는 그 화면 안' 일 때만 쓴다. 다른 모니터를 녹화하면 그 화면에 띄운다.
         if parts.count==2 {
             let wanted=NSPoint(x:parts[0],y:parts[1])
-            if NSScreen.screens.contains(where:{ $0.visibleFrame.contains(NSPoint(x:wanted.x+20,y:wanted.y+20)) }) { origin=wanted }
+            if screen.visibleFrame.contains(NSPoint(x:wanted.x+20,y:wanted.y+20)) { origin=wanted }
         }
         setFrameOrigin(origin)
     }
@@ -1057,6 +1064,10 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         }
         guard !made.isEmpty else {
             restoreAfterSnip(); tell("화면을 읽지 못했습니다 · 화면 기록 권한을 확인해 주세요"); return
+        }
+        // 한 대라도 못 읽으면 그 모니터에서는 고를 수 없다. 조용히 넘어가지 않는다.
+        if made.count < NSScreen.screens.count {
+            tell("모니터 \(NSScreen.screens.count)대 중 \(made.count)대만 읽었습니다")
         }
         // 마우스가 있는 화면의 덮개가 키 창이 된다. Esc 도 그 창이 받는다.
         let here=NSEvent.mouseLocation

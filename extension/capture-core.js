@@ -16,10 +16,21 @@ export async function captureOptions() {
 }
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+const isWeb = tab => /^https?:/i.test(tab?.url || '');
 export async function targetTab() {
-  const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true, windowType: 'normal'});
-  if (!tab) throw new Error('캡처할 탭을 찾지 못했습니다.');
-  if (!/^https?:/i.test(tab.url || ''))
+  let [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true, windowType: 'normal'});
+  // 따로 띄운 도크 창에서 부르면 '마지막 초점 창' 이 그 도크(팝업)라 아무 탭도 잡히지 않았다
+  // — '캡처할 탭을 찾지 못했습니다' 의 원인. 앞에 있는 것이 편집기처럼 찍을 수 없는 탭일 때도
+  // 마찬가지다. 그럴 때는 다른 보통 창에서 마지막에 쓰던 웹페이지를 찾는다.
+  if (!isWeb(tab)) {
+    const normals = await chrome.tabs.query({active: true, windowType: 'normal'});
+    const usable = normals.filter(isWeb);
+    let last = 0;
+    try { last = (await chrome.storage.session.get('lastNormalWindow')).lastNormalWindow || 0; } catch {}
+    tab = usable.find(one => one.windowId === last) || usable[usable.length - 1] || tab;
+  }
+  if (!tab) throw new Error('캡처할 탭을 찾지 못했습니다. 브라우저 창을 하나 열어 두고 다시 해 주세요.');
+  if (!isWeb(tab))
     throw new Error('이 탭은 캡처할 수 없습니다. 새 탭·Chrome 설정·웹 스토어는 Chrome 이 막아 둡니다. 일반 웹페이지에서 해 주세요.\n바탕화면이나 다른 앱은 ‘전체 화면·앱 창’ 을 쓰세요.');
   return tab;
 }
@@ -212,22 +223,39 @@ export async function shootFull(tab, options, progress = () => {}) {
   return Object.assign(blob, {truncated});
 }
 
+// 찍을 탭이 뒤에 있으면 먼저 앞으로 가져온다. 따로 띄운 도크 창에서 부르면 늘 그렇다
+// (도크가 앞이고 브라우저는 뒤라 '캡처할 탭이 화면에 보이지 않습니다' 로 막혔다).
+// 가려진 탭은 Chrome 이 예전 화면을 주므로 앞으로 가져온 뒤 한 숨 기다린다.
+async function bringUp(tab) {
+  try {
+    const win = await chrome.windows.get(tab.windowId);
+    if (win.focused && win.state !== 'minimized') return;
+    await chrome.windows.update(tab.windowId, {focused: true, ...(win.state === 'minimized' ? {state: 'normal'} : {})});
+    await sleep(340);
+  } catch {}
+}
+
 // 한 번 캡처하고 설정대로 보낸다. mode: visible · area · full · delay · ocr
 export async function captureAndDeliver(mode, overrides = {}, progress = () => {}) {
   const options = {...await captureOptions(), ...overrides};
   const tab = await targetTab();
+  await bringUp(tab);
   // 사이드바를 닫는 중이면 페이지가 넓어질 때까지 기다린다. 그러지 않으면 좁은 채로 찍힌다.
   if (overrides.widen) await waitWider(tab.id).catch(() => {});
   const ready = await inPage(tab.id, readyToShoot).catch(() => ({visible: true}));
   if (ready && ready.visible === false)
     throw new Error('캡처할 탭이 화면에 보이지 않습니다. 그 창을 앞으로 가져온 뒤 다시 해 주세요.');
   if (mode === 'delay') {
+    // 확장 아이콘의 숫자만으로는 언제 찍히는지 알기 어렵다(사용자 요청). 페이지 위에도 센다.
     for (let left = Math.max(1, Math.min(30, Number(options.delay) || 3)); left > 0; left--) {
       await chrome.action.setBadgeText({text: String(left)}).catch(() => {});
+      await inPage(tab.id, countInPage, left).catch(() => {});
       progress(left, 0);
       await sleep(1000);
     }
     await chrome.action.setBadgeText({text: ''}).catch(() => {});
+    await inPage(tab.id, countInPage, 0).catch(() => {});   // 세던 숫자를 지운다
+    await sleep(240);                                       // 지운 것이 화면에 반영될 틈
   }
   let blob;
   if (mode === 'full') blob = await shootFull(tab, options, progress);
@@ -237,6 +265,23 @@ export async function captureAndDeliver(mode, overrides = {}, progress = () => {
   const after = mode === 'ocr' ? 'ocr' : options.after;
   const result = await deliver(blob, after, {title: tab.title || '', url: tab.url || '', mode});
   return {...result, truncated: !!blob.truncated, bytes: blob.size};
+}
+
+// 잠시 뒤 찍을 때 페이지 위에서 세는 숫자. 0 을 주면 지운다. 찍기 전에 반드시 지운다.
+function countInPage(left) {
+  const id = 'dais-count';
+  const old = document.getElementById(id);
+  if (!left) { if (old) old.remove(); return; }
+  const box = old || document.createElement('div');
+  if (!old) {
+    box.id = id;
+    Object.assign(box.style, {position: 'fixed', right: '22px', bottom: '22px', zIndex: '2147483647',
+      width: '92px', height: '92px', borderRadius: '50%', background: 'rgba(23,59,54,.92)', color: '#dff39c',
+      font: '800 42px/92px ui-monospace,SFMono-Regular,Menlo,monospace', textAlign: 'center',
+      pointerEvents: 'none', boxShadow: '0 10px 24px rgba(0,0,0,.25)'});
+    document.documentElement.append(box);
+  }
+  box.textContent = String(left);
 }
 
 // 사이드바가 닫히면 페이지가 그만큼 넓어진다. 넓어질 때까지(최대 1.3초) 기다린다.

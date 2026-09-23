@@ -82,11 +82,8 @@ test('카메라 동그라미는 앱이 띄우고, 못 띄우면 영상 안에 �
   assert.doesNotMatch(rec, /bubbleMode|openBubble/);
   assert.match(rec, /async function appCameraUp\(\)/);
   // 앱 창은 '화면 전체' 를 담을 때만 영상에 들어간다. 창·탭을 고르면 영상 안에 합쳐야 한다.
-  assert.match(rec, /cameraOnScreen = want\.camera && !want\.camMix && want\.mode === 'desktop' && surface === 'monitor'/);
+  assert.match(rec, /cameraOnScreen = want\.camera && want\.mode === 'desktop' && surface === 'monitor'/);
   assert.match(rec, /getSettings\(\)\.displaySurface/);
-  // 사용자가 직접 '영상 안에 합치기' 를 고를 수도 있어야 한다(무엇이 어긋나도 카메라는 남는다).
-  assert.match(readFileSync('extension/panel.html', 'utf8'), /id="rec-cam-mix"/);
-  assert.match(readFileSync('extension/panel.js', 'utf8'), /camMix:\$\('rec-cam-mix'\)\.checked/);
   assert.match(rec, /const video = \(cam \|\| \(want\.mode === 'area' && want\.rect\)\)/);
   // 영상 안 동그라미는 그대로 남아 있어야 한다(물러날 자리다).
   assert.match(rec, /c\.arc\(x \+ d \/ 2, y \+ d \/ 2, d \/ 2, 0, Math\.PI \* 2\); c\.clip\(\)/);
@@ -113,6 +110,51 @@ test('카메라 창 표시는 모든 표시기 알림에 함께 간다', () => {
   // 앱 쪽은 값이 없는 알림에 창을 건드리지 않는다.
   assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'), /if let wanted=info\["cameraView"\]/);
   assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'), /if\(cameraView=="1"\)OpenCamera\(cameraName\);else if\(cameraView!=null\)CloseCamera\(\)/);
+});
+
+// 따로 띄운 도크 창에서 부르면 '마지막 초점 창' 이 그 팝업이라 탭을 못 찾았다(사용자 보고).
+test('도크 창에서 불러도 찍을 탭을 찾는다', () => {
+  const core = readFileSync('extension/capture-core.js', 'utf8');
+  assert.match(core, /chrome\.tabs\.query\(\{active: true, windowType: 'normal'\}\)/);
+  assert.match(core, /lastNormalWindow/);
+  assert.match(readFileSync('extension/background.js', 'utf8'), /chrome\.windows\.onFocusChanged\.addListener/);
+});
+
+// 선택 영역은 브라우저 안에 갇히지 않아야 한다(다른 앱·다른 모니터).
+test('도크와 캡처 탭에서 화면 전체를 끌어 고를 수 있다', () => {
+  const panel = readFileSync('extension/panel.js', 'utf8');
+  const html = readFileSync('extension/panel.html', 'utf8');
+  assert.match(html, /id="cap-screen-area"/);
+  assert.equal((panel.match(/action:'snip-save'/g) || []).length, 2, '캡처 탭과 도크 둘 다');
+  assert.match(readFileSync('extension/dock.js', 'utf8'), /present\('snip-save'\)/);
+});
+
+// 잠시 뒤 찍을 때 화면 위에서도 세어 준다. 찍기 전에는 반드시 지운다.
+test('잠시 뒤 캡처는 페이지 위에서 세고 찍기 전에 지운다', () => {
+  const core = readFileSync('extension/capture-core.js', 'utf8');
+  assert.match(core, /function countInPage\(left\)/);
+  assert.match(core, /await inPage\(tab\.id, countInPage, left\)/);
+  assert.match(core, /await inPage\(tab\.id, countInPage, 0\)/);
+  assert.match(core, /await sleep\(240\);/);
+});
+
+// 3-2-1 의 '1' 과 초록 창이 첫 장면에 담기던 문제: 내리고 가라앉은 뒤에 녹화를 시작한다.
+test('센 숫자와 녹화 창이 첫 장면에 담기지 않는다', () => {
+  const rec = readFileSync('extension/record.js', 'utf8');
+  const order = rec.indexOf('await countdown();');
+  const hide = rec.indexOf("state: 'minimized'", order);
+  const begin = rec.indexOf('recorder.start(1000)', order);
+  assert.ok(order > 0 && hide > order && begin > hide, '세기 → 내리기 → 시작 차례');
+  assert.match(rec.slice(order, begin), /setTimeout\(resolve, away \? 420 : 280\)/);
+});
+
+// 표시기와 카메라 창은 지금 쓰는(녹화하는) 모니터에 뜬다.
+test('표시기와 카메라 창은 쓰고 있는 모니터에 뜬다', () => {
+  const swift = readFileSync('presenter/macos/Presenter.swift', 'utf8');
+  const cs = readFileSync('presenter/windows/Presenter.cs', 'utf8');
+  assert.match(swift, /func screenInUse\(\) -> NSScreen\?/);
+  assert.doesNotMatch(swift, /guard let screen=NSScreen\.main else \{ return \}\n\s*let saved=UserDefaults/);
+  assert.equal((cs.match(/Screen\.FromPoint\(Cursor\.Position\)\.WorkingArea/g) || []).length, 2);
 });
 
 // 고르기 창이 뜨지도 않고 곧바로 돌아오면 다른 길로 한 번 더 띄운다. 창은 미리 앞으로.

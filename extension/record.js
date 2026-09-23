@@ -11,7 +11,6 @@ const want = {
   tab: Number(ask.get('tab')) || 0,
   rect: ask.get('rect') ? JSON.parse(ask.get('rect')) : null,
   camera: ask.get('camera') === 'true', cameraId: ask.get('cameraId') || '', cameraName: ask.get('cameraName') || '',
-  camMix: ask.get('camMix') === 'true',
   mic: ask.get('mic') !== 'false', micId: ask.get('micId') || '',
   controlBar: ask.get('controlBar') !== 'false',
   res: Number(ask.get('res')) || 1080, format: ask.get('format') || 'mp4',
@@ -259,7 +258,7 @@ async function start(fromClick) {
     screen = await getScreen();
     // 무엇을 골랐나: monitor(화면 전체) · window(창 하나) · browser(탭).
     const surface = screen.getVideoTracks()[0].getSettings().displaySurface || '';
-    cameraOnScreen = want.camera && !want.camMix && want.mode === 'desktop' && surface === 'monitor';
+    cameraOnScreen = want.camera && want.mode === 'desktop' && surface === 'monitor';
     if (want.mode === 'desktop') await backToBar();
     if (want.mic) {
       try { mic = await navigator.mediaDevices.getUserMedia({audio: {...(want.micId ? {deviceId: {exact: want.micId}} : {}), echoCancellation: true, noiseSuppression: true}}); }
@@ -287,18 +286,22 @@ async function start(fromClick) {
     // Chrome 의 ‘공유 중지’ 를 눌러도 여기서 멈추고 저장 화면으로 간다.
     source.addEventListener('ended', () => stop());
     await countdown();
+    // 센 숫자와 이 초록 창이 첫 장면에 함께 담기던 문제(사용자 보고: '1' 이 녹화에 남음).
+    // 세고 나서 창을 먼저 내리고, 화면이 가라앉은 뒤에 녹화를 시작한다.
+    const away = (onBadge || !want.controlBar) && !drawing?.visibleOnly;
+    if (away) {
+      const me = await chrome.windows.getCurrent();
+      await chrome.windows.update(me.id, {state: 'minimized'}).catch(() => {});
+    }
+    await new Promise(resolve => setTimeout(resolve, away ? 420 : 280));
     recorder.start(1000);
     started = Date.now(); ticker = setInterval(tick, 250); tick();
     $('dot').className = 'dot live';
     for (const id of ['pause', 'stop']) $(id).disabled = false;
     $('mute').disabled = !micGain;
     say(type.startsWith('video/mp4') || want.format !== 'mp4' ? '녹화 중입니다. 끝나면 ■ 를 누르세요.' : '녹화 중입니다. 이 Chrome 은 MP4 를 만들 수 없어 WebM 으로 저장합니다.');
-    // 녹화가 돌기 시작하면 이 창은 내린다 — 화면에 남아 녹화에 함께 담기지 않도록.
-    // 표시기(발표 도우미 앱의 작은 창)가 시간과 멈춤 단추를 대신 맡는다. 표시기가 뜨지
-    // 않았거나 옛 Chrome 이라 보이는 창에서만 그려지는 경우에는 이 창을 그대로 둔다.
-    if ((onBadge || !want.controlBar) && !drawing?.visibleOnly) {
-      const me = await chrome.windows.getCurrent(); chrome.windows.update(me.id, {state: 'minimized'}).catch(() => {});
-    } else if (want.controlBar) {
+    // 창은 이미 녹화 전에 내렸다(위). 내리지 못한 경우에만 그 뜻을 알린다.
+    if (!away && want.controlBar) {
       say('녹화 중입니다. 끝나면 ■ 를 누르세요. (발표 도우미 앱이 없어 이 창을 띄워 둡니다 — 녹화에 함께 담깁니다.)');
     }
   } catch (error) {

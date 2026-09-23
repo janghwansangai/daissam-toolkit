@@ -1266,13 +1266,15 @@ namespace BrowserSheriff {
     }
     public void Place(){
       string saved=null;try{saved=File.Exists(SpotFile)?File.ReadAllText(SpotFile):null;}catch{}
-      Rectangle area=Screen.PrimaryScreen.WorkingArea;
+      // 지금 쓰고 있는(녹화하는) 모니터에 띄운다. 예전에는 늘 주 모니터라 다른 모니터를
+      // 녹화하면 화면 밖에 떴다. 지난번 자리는 그 모니터 안일 때만 쓴다.
+      Rectangle area=Screen.FromPoint(Cursor.Position).WorkingArea;
       System.Drawing.Point spot=new System.Drawing.Point(area.Right-Width-28,area.Bottom-Height-28);
       if(saved!=null){
         string[] parts=saved.Split(',');int x,y;
         if(parts.Length==2&&int.TryParse(parts[0],out x)&&int.TryParse(parts[1],out y)){
           Rectangle wanted=new Rectangle(x,y,Width,Height);
-          foreach(Screen one in Screen.AllScreens)if(one.WorkingArea.IntersectsWith(wanted)){spot=new System.Drawing.Point(x,y);break;}
+          if(area.IntersectsWith(wanted))spot=new System.Drawing.Point(x,y);
         }
       }
       Location=spot;
@@ -1411,13 +1413,14 @@ namespace BrowserSheriff {
     }
     void Place(){
       string saved=null;try{saved=File.Exists(SpotFile)?File.ReadAllText(SpotFile):null;}catch{}
-      Rectangle area=Screen.PrimaryScreen.WorkingArea;
+      // 지금 쓰고 있는(녹화하는) 모니터에 띄운다. 지난번 자리는 그 모니터 안일 때만 쓴다.
+      Rectangle area=Screen.FromPoint(Cursor.Position).WorkingArea;
       Point spot=new Point(area.Right-Width-28,area.Bottom-Height-28);
       if(saved!=null){
         string[] parts=saved.Split(',');int x,y;
         if(parts.Length==2&&int.TryParse(parts[0],out x)&&int.TryParse(parts[1],out y)){
           Rectangle wanted=new Rectangle(x,y,Width,Height);
-          foreach(Screen one in Screen.AllScreens)if(one.WorkingArea.IntersectsWith(wanted)){spot=new Point(x,y);break;}
+          if(area.IntersectsWith(wanted))spot=new Point(x,y);
         }
       }
       Location=spot;
