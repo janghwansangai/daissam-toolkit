@@ -331,10 +331,11 @@ async function toast(tabId,text){
 // 캡처가 끝난 뒤: 닫아 둔 사이드바를 되돌리고(열 수 있으면 열고) 결과를 알린다.
 // Chrome 은 sidePanel.open() 을 '사용자가 누른 직후' 에만 허락한다. 캡처가 끝나는 순간은
 // 그 직후가 아니라서 대개 막힌다 — 그래서 결과와 '다시 여는 법' 을 페이지 위에 띄워 준다.
-async function captureDone(away,text,title){
+async function captureDone(away,text,title,tabId){
   const opened=away?await away.back(true):false;
   if(text)await chrome.storage.local.set({lastCapture:{text,at:Date.now()}}).catch(()=>{});
-  if(away&&!opened)await toast(away.tab?.id,text+' · 사이드바는 확장 아이콘을 눌러 다시 엽니다.').catch(()=>{});
+  // 알림은 **찍은 그 탭** 위에 띄운다. 사이드바를 닫은 탭과 다를 수 있다.
+  if(away&&!opened)await toast(tabId||away.tab?.id,text+' · 사이드바는 확장 아이콘을 눌러 다시 엽니다.').catch(()=>{});
   if(title&&text)tell(title,text);
   chrome.runtime.sendMessage({type:'capture-done',text}).catch(()=>{});
 }
@@ -355,7 +356,7 @@ async function runCapture(mode,{after,notify,widen}={}){
     const result=await captureAndDeliver(mode,{...(after?{after}:{}),...(widen?{widen:true}:{})});
     const text=captureNotice(result);
     const done=away;away=null;
-    await captureDone(done,text||'캡처를 그만두었습니다.',notify&&text?'다있쌤 캡처':'');
+    await captureDone(done,text||'캡처를 그만두었습니다.',notify&&text?'다있쌤 캡처':'',result.tabId);
     return {...result,message:text};
   }catch(error){
     const done=away;away=null;
@@ -364,6 +365,49 @@ async function runCapture(mode,{after,notify,widen}={}){
   }finally{ if(away)await away.back(true); }
 }
 async function quickCapture(mode){ return runCapture(mode,{notify:true,widen:true}); }
+// 발표 명령을 보내는 '오래 여는 통로'. sendNativeMessage 는 부를 때마다 도우미 프로세스를
+// 새로 띄운다 — 윈도우에서는 한 번에 0.8초가 걸리고, 슬라이더를 끄는 0.7초 동안 프로세스가
+// 13개까지 쌓여 합쳐 465MB 를 썼다(윈도우 세션 실측). 통로를 하나 열어 두면 프로세스도
+// 하나다. 도우미는 받은 순서대로 한 건에 한 번 답하므로 순서대로 짝을 맞춘다.
+let cmdPort=null,cmdWaiting=[],cmdIdle=0;
+function cmdConnect(){
+  if(cmdPort)return cmdPort;
+  let port;
+  try{ port=chrome.runtime.connectNative(HOST); }catch{ return null; }
+  port.onMessage.addListener(message=>{ const waiter=cmdWaiting.shift(); if(waiter)waiter.ok(message); });
+  port.onDisconnect.addListener(()=>{
+    if(cmdPort===port)cmdPort=null;
+    const waiting=cmdWaiting; cmdWaiting=[];
+    for(const one of waiting)one.no(new Error('발표 도우미와의 연결이 끊어졌습니다.'));
+  });
+  cmdPort=port;
+  return port;
+}
+// 한동안 쓰지 않으면 통로를 닫는다(도우미 프로세스를 붙잡아 두지 않는다).
+function cmdRest(){
+  clearTimeout(cmdIdle);
+  cmdIdle=setTimeout(()=>{ try{cmdPort?.disconnect();}catch{} cmdPort=null; },20000);
+}
+async function presenterSay(payload){
+  const port=cmdConnect();
+  if(!port)return chrome.runtime.sendNativeMessage(HOST,payload);
+  return new Promise((ok,no)=>{
+    const waiter={ok,no};
+    cmdWaiting.push(waiter);
+    // 답이 늦으면 통로를 접고 한 번짜리로 다시 해 본다(멈춰 있지 않게).
+    const guard=setTimeout(()=>{
+      const at=cmdWaiting.indexOf(waiter); if(at>=0)cmdWaiting.splice(at,1);
+      try{cmdPort?.disconnect();}catch{} cmdPort=null;
+      chrome.runtime.sendNativeMessage(HOST,payload).then(ok,no);
+    },4000);
+    waiter.ok=value=>{clearTimeout(guard);ok(value);};
+    waiter.no=error=>{clearTimeout(guard);no(error);};
+    try{ port.postMessage(payload); cmdRest(); }
+    catch{ clearTimeout(guard); const at=cmdWaiting.indexOf(waiter); if(at>=0)cmdWaiting.splice(at,1);
+           chrome.runtime.sendNativeMessage(HOST,payload).then(ok,no); }
+  });
+}
+
 // 녹화 중 화면에 뜨는 ‘녹화 표시기’ 는 발표 도우미 앱이 그린다. 그 창은 화면 녹화에 담기지
 // 않는다(맥 sharingType=none · 윈도우 WDA_EXCLUDEFROMCAPTURE). 표시기의 단추를 누르면
 // 앱이 알려 주므로, 녹화가 도는 동안에만 오래 열어 두는 통로를 하나 잡는다.
@@ -460,7 +504,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       // 제대로 보냈는데 앱은 늘 기본 조합만 듣고 있었다(v0.29.0). 새 값을 넣을 때 여기도 볼 것.
       for(const key of ['action','dim','blur','ring','ringSize','keys'])if(m[key]!==undefined)payload[key]=String(m[key]);
       let reply;
-      try { reply=await chrome.runtime.sendNativeMessage(HOST,payload); }
+      try { reply=await presenterSay(payload); }
       catch { throw Error('발표 도우미에 연결하지 못했습니다. 앱을 설치하고 클립보드 도우미를 등록해 주세요.'); }
       // 도우미가 앱에 명령을 넘기지 못한 경우. 예전에는 이 답을 그냥 흘려보내 사이드바가
       // 아무 말도 하지 않았고, 사용자는 버튼이 죽은 것으로만 보였다.

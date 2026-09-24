@@ -1,6 +1,6 @@
 # 윈도우 작업 인수인계 — 맥 Claude Code → 윈도우 Claude Code
 
-갱신: 2026-09-24 · 기준 버전 **v0.36.6** · 작성자: 맥 쪽 세션
+갱신: 2026-09-24 · 기준 버전 **v0.37.0** · 작성자: 맥 쪽 세션
 읽는 순서: `AGENTS.md` → `docs/ai/PROJECT.md` → `docs/ai/HANDOFF.md` → **이 문서** → (필요할 때) `docs/ai/VALIDATION.md`
 새 컴퓨터에서 처음 시작한다면 먼저 **[WINDOWS_START.md](WINDOWS_START.md)**(설치·시작 명령서)를 읽는다. 규칙과 계약은 이 문서가 기준이다.
 
@@ -153,6 +153,28 @@ copy /Y bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\Presenter.exe ..\
 | 통과 핀 휠 투명도 | `SyncWheelHook` · `WheelHook` (WH_MOUSE_LL) | 통과 핀 **위에서만** 휠이 투명도를 바꾸고, 그 휠이 아래 앱으로 내려가지 않아야 한다. 통과 핀이 없으면 훅을 걸지 않는다 |
 | 화면 조각 저장 | `BeginSnip(true)` → `SaveShot` | 도크의 ‘선택 영역 캡처’ 가 보내는 `snip-save`. **가상 화면 전체**(`SystemInformation.VirtualScreen`)를 덮어 다른 모니터 위의 앱도 고를 수 있어야 한다. 모니터마다 배율(DPI)이 다르면 좌표가 어긋날 수 있다 — 가장 미덥지 않은 부분 |
 | 디스플레이 알림 | `DisplayChanged` | 발표 중일 때만 트레이 알림으로 알린다(예전에는 아무 때나 모달 대화상자가 떠서 일을 막았다) |
+
+### 맥 세션이 v0.37.0 에서 처리한 것 (윈도우 세션 요청에 대한 답)
+
+| 요청 | 어떻게 했나 |
+|---|---|
+| 조절값 디바운스 + 오래 여는 포트 | **둘 다 했다.** 사이드바는 120ms 모아 마지막 값만 보내고(`panel.js` `knobChanged`), 배경은 `presenterSay()` 로 **오래 여는 통로** 하나를 쓴다(`connectNative`, 20초 쉬면 닫음, 막히면 예전 방식으로 물러남). 맥에서 실측: 조절값 12건 **5,659ms → 11ms**, 도우미 프로세스 **1개**, 20초 뒤 0개 |
+| `composed()` 옛 경로의 카메라 누락 | 고쳤다. `paintFace(into)` 가 **내보내는 캔버스**에 그리고, 헛되던 복사를 없앴다 |
+| CRLF 때문에 실패하던 시험 2개 | 저장소에 `.gitattributes`(`* text=auto eol=lf`)를 두고, 그 정규식들도 `\r?\n` 으로 고쳤다(두 겹) |
+| `appCameraUp()` 이 윈도우에서 12초 넘게 걸리는 문제 | 횟수가 아니라 **시계로** 잰다(2.6초). 윈도우에서 녹화 시작이 12초 늦던 것이 사라진다 |
+
+### 윈도우 세션에 남기는 것 (다음 차례)
+
+1. **조절값 즉시 응답**: `Forward()` 의 `StateStamp()` 기다림은 좋았지만, **조절값만 온 메시지(`action` 없음)는 앱이 상태 파일을 다시 쓰지 않는다** — 그래서 매번 400ms 한도를 다 쓴다. 맥에서는 그 경우 **곧바로 답하게** 고쳤다(`forward` 안 `if message["action"] == nil { reply(...); return }`). 윈도우도 같은 한 줄을 넣으면 조절값 지연이 사라진다.
+2. **GDI 개체 누수**: `Region.FromHrgn(Native.CreateRoundRectRgn(...))` 3곳이 원본 HRGN 을 지우지 않는다(윈도우 세션이 PR 에서 지적). `Native` 에 `DeleteObject` 를 더해 정리할 것.
+3. 7장 표에서 아직 미확인: **WheelHook · BeginSnip(true)/SaveShot · 가상 화면 스닙 · DisplayChanged · ScreenForCapture 의 다중 모니터**.
+4. **캡처가 안 되는 문제**(6장)는 여전히 원인 미확정 — 저장 모드로 한 번 찍어 `바탕화면\캡처이미지` 가 만들어지는지부터.
+5. **녹화가 파일로 끝난 적이 없다**는 보고: v0.37.0 에서 카메라 창 순환(윈도우 세션 수정) + `appCameraUp` 시간 제한(맥 세션 수정)이 함께 들어갔으니 **다시 시험**해 볼 것.
+
+### 소유 규칙 — 맥 세션의 잘못
+
+- v0.36.4·v0.36.5 에서 맥 세션이 `presenter/windows/Presenter.cs` 를 고쳤다(윈도우 세션 소유). 규칙 위반이 맞다. 앞으로 윈도우 파일은 요청으로만 넘긴다.
+- v0.36.6 을 `windows` 브랜치에 직접 push 한 것도 잘못이다. 이제 맥 세션은 **`main` 에만 올린다.** 윈도우 세션은 `git pull origin main` 으로 받으면 된다.
 
 ### 맥에서 배운 것 — 윈도우에도 해당될 수 있는 함정
 - **창을 화면에서 내리는 일은 확인해야 한다.** 맥은 `orderOut` 만으로는 남는 경우가 있어 `close()` 까지 부른다(v0.36.3). 윈도우에서도 `Hide()` 만으로 남지 않는지 실제 창 목록으로 확인할 것.

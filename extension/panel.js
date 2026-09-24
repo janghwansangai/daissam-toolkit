@@ -420,10 +420,15 @@ async function loadKnobs(){
 // 앱은 소수 배율을 받으므로 어둡기만 백분율에서 바꿔 보낸다.
 function knobPayload(){return {dim:presentKnobs.dim/100,blur:presentKnobs.blur,ringSize:presentKnobs.ringSize,ring:presentKnobs.ring,keys:hotText(hotkeys[THIS_OS])};}
 async function present(action){return api('presenter-command',{action,...knobPayload()});}
+// 조절값은 끄는 동안 input 이 쉼 없이 온다. 그때마다 앱까지 보내면 윈도우에서는 한 건마다
+// 도우미 프로세스가 새로 떠 손에 느껴지게 느려졌다(윈도우 세션 실측). 120ms 모아 마지막
+// 값만 보낸다 — 눈으로는 바로 따라오고, 보내는 횟수는 크게 줄어든다.
+let knobTimer=0;
 async function knobChanged(){
   showKnobs();
   await chrome.storage.local.set({presentKnobs});
-  await api('presenter-command',knobPayload()).catch(()=>{});
+  clearTimeout(knobTimer);
+  knobTimer=setTimeout(()=>{ api('presenter-command',knobPayload()).catch(()=>{}); },120);
 }
 let focusOn=false,presenting=false,pinCount=0,throughCount=0;
 // 집중 모드는 발표 중에만 뜻이 있다. 앱이 알려 준 상태 그대로 버튼을 맞춘다.

@@ -22,6 +22,18 @@ test('캡처 단축키 명령이 있고, 기본 키를 억지로 잡지 않는�
   }
 });
 
+// 남에게 건넬 폴더에는 설치 안내와 사용설명서가 함께 들어가야 한다.
+test('건네줄 폴더에 안내문 두 개가 들어간다', () => {
+  const pack = readFileSync('scripts/package.mjs', 'utf8');
+  assert.match(pack, /0\. 먼저 읽어주세요\.html/);
+  assert.match(pack, /1\. 사용설명서\.html/);
+  for (const file of ['docs/install-guide.html', 'docs/user-guide.html']) {
+    const text = readFileSync(file, 'utf8');
+    assert.ok(text.includes('{{VERSION}}'), file + ' 은 버전을 틀에서 채운다');
+    assert.ok(text.length > 4000, file + ' 이 너무 짧다');
+  }
+});
+
 test('파일 이름의 날짜 모양', () => {
   assert.equal(stamp(new Date(2026, 8, 3, 7, 5, 9)), '2026-09-03 07.05.09');
 });
@@ -114,7 +126,7 @@ test('윈도우에서 녹화 제외는 표시기에만 걸린다', () => {
 test('창을 내릴 때는 close 까지 부른다', () => {
   const swift = readFileSync('presenter/macos/Presenter.swift', 'utf8');
   assert.match(swift, /extension NSWindow \{[\s\S]{0,240}func vanish\(\)[\s\S]{0,160}close\(\)/);
-  for (const site of [/blink=nil; vanish\(\)/, /preview=nil\n\s*vanish\(\)/, /window\?\.vanish\(\);window=nil/, /notice\?\.vanish\(\); notice=nil/, /snip\?\.vanish\(\); snip=nil/])
+  for (const site of [/blink=nil; vanish\(\)/, /preview=nil\r?\n\s*vanish\(\)/, /window\?\.vanish\(\);window=nil/, /notice\?\.vanish\(\); notice=nil/, /snip\?\.vanish\(\); snip=nil/])
     assert.match(swift, site, String(site));
   // 모니터가 빠지면 표시기·카메라 창을 남은 화면으로 데려온다.
   assert.match(swift, /func displayChanged\(\)\{[\s\S]{0,600}place\(on:screenInUse\(\)\)/);
@@ -153,8 +165,11 @@ test('카메라 동그라미는 앱이 띄우고, 못 띄우면 영상 안에 �
   assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
     /MediaCaptureSharingMode\.SharedReadOnly/);
   assert.match(rec, /const video = \(cam \|\| \(want\.mode === 'area' && want\.rect\)\)/);
-  // 영상 안 동그라미는 그대로 남아 있어야 한다(물러날 자리다).
-  assert.match(rec, /c\.arc\(x \+ d \/ 2, y \+ d \/ 2, d \/ 2, 0, Math\.PI \* 2\); c\.clip\(\)/);
+  // 영상 안 동그라미는 그대로 남아 있어야 한다(물러날 자리다). 어느 캔버스에 그릴지는
+  // 받아서 쓴다 — 옛 Chrome 경로에서 엉뚱한 캔버스에 그려 영상에 안 담겼다(윈도우 세션 지적).
+  assert.match(rec, /const paintFace = \(into = c\) =>/);
+  assert.match(rec, /into\.arc\(x \+ d \/ 2, y \+ d \/ 2, d \/ 2, 0, Math\.PI \* 2\); into\.clip\(\)/);
+  assert.match(rec, /paintFace\(sc\);/, '내보내는 캔버스에 그린다');
   // 앱까지 가는 길: 이름 목록이 세 곳에 따로 있다. 하나라도 빠지면 앱은 못 듣는다(v0.29.0 교훈).
   assert.match(readFileSync('extension/background.js', 'utf8'), /cameraView:m\.cameraView\?'1':'0',cameraName:String\(m\.cameraName\|\|''\)/);
   assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'), /"action","time","paused","camera","cameraView","cameraName"/);
@@ -372,7 +387,7 @@ test('클릭 통과 핀 위에서는 앱이 휠을 가로채 투명도를 바꾼
 test('녹화 창은 초점을 잡은 뒤에 화면 고르기를 띄운다', () => {
   const rec = readFileSync('extension/record.js', 'utf8');
   assert.match(rec, /async function focusMe\(\)/);
-  assert.match(rec, /if \(!fromClick\) await focusMe\(\);\n\s*if \(want\.mode === 'desktop'\) await roomForPicker\(\);\n\s*screen = await getScreen\(\)/);
+  assert.match(rec, /if \(!fromClick\) await focusMe\(\);\r?\n\s*if \(want\.mode === 'desktop'\) await roomForPicker\(\);\r?\n\s*screen = await getScreen\(\)/);
   assert.match(readFileSync('extension/background.js', 'utf8'), /away=await sidePanelAway\(\); await new Promise/);
 });
 

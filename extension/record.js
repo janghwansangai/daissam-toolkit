@@ -161,8 +161,12 @@ chrome.runtime.onMessage.addListener(message => {
 // 보이고 녹화에도 그대로 담긴다). 정말 떴는지는 앱 상태로 확인하고, 못 띄웠으면 예전처럼
 // 영상 안에 합쳐 넣는다. 탭·선택 영역 녹화는 그 창이 담기는 자리 밖이라 늘 합쳐 넣는다.
 async function appCameraUp() {
-  for (let step = 0; step < 12; step++) {
-    await new Promise(resolve => setTimeout(resolve, 220));
+  // 횟수로 세지 않고 **시계로** 잰다. 윈도우에서는 상태 질의 한 번이 도우미 프로세스 하나라
+  // 한 번에 0.8초가 걸린다 — 12번을 세면 12초가 넘고, 그동안 녹화가 시작되지 않는다
+  // (윈도우 세션 실측). 2.6초까지만 기다리고 물러난다.
+  const until = Date.now() + 2600;
+  while (Date.now() < until) {
+    await new Promise(resolve => setTimeout(resolve, 200));
     try {
       const reply = await chrome.runtime.sendMessage({type: 'presenter-command', action: 'state'});
       if (reply?.ok && reply.data?.camera) return true;
@@ -199,13 +203,16 @@ async function composed(videoTrack) {
     const camReader = new MediaStreamTrackProcessor({track: camTrack}).readable.getReader();
     (async () => { for (;;) { const {value, done} = await camReader.read(); if (done) break; face?.close(); face = value; } })().catch(() => {});
   }
-  const paintFace = () => {
+  // 어느 캔버스에 그릴지 받는다. 옛 Chrome 경로는 내보내는 캔버스가 따로라, 예전에는
+  // 카메라를 엉뚱한 캔버스에 그려 영상에 하나도 담기지 않았다(윈도우 세션 지적).
+  const paintFace = (into = c) => {
     if (!face) return;
     const d = Math.round(Math.min(width, height) * .24), x = width - d - Math.round(d * .18), y = height - d - Math.round(d * .18);
     const sw = face.displayWidth, sh = face.displayHeight, s = Math.min(sw, sh);
-    c.save(); c.beginPath(); c.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); c.clip();
-    c.drawImage(face, (sw - s) / 2, (sh - s) / 2, s, s, x, y, d, d); c.restore();
-    c.save(); c.lineWidth = Math.max(3, d * .03); c.strokeStyle = '#dff39c'; c.beginPath(); c.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); c.stroke(); c.restore();
+    into.save(); into.beginPath(); into.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); into.clip();
+    into.drawImage(face, (sw - s) / 2, (sh - s) / 2, s, s, x, y, d, d); into.restore();
+    into.save(); into.lineWidth = Math.max(3, d * .03); into.strokeStyle = '#dff39c';
+    into.beginPath(); into.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); into.stroke(); into.restore();
   };
   const paint = frame => {
     if (cut) c.drawImage(frame, cut.x, cut.y, cut.w, cut.h, 0, 0, width, height);
@@ -231,7 +238,15 @@ async function composed(videoTrack) {
   const video = document.createElement('video'); video.muted = true; video.srcObject = new MediaStream([videoTrack]); await video.play();
   const shown = document.createElement('canvas'); shown.width = width; shown.height = height;
   const sc = shown.getContext('2d'); let alive = true;
-  const loop = () => { if (!alive) return; if (cut) sc.drawImage(video, cut.x, cut.y, cut.w, cut.h, 0, 0, width, height); else sc.drawImage(video, 0, 0, width, height); c.drawImage(shown, 0, 0); paintFace(); requestAnimationFrame(loop); };
+  // 내보내는 것은 shown 이다. 여기에 화면과 카메라를 함께 그린다(예전에는 카메라를
+  // OffscreenCanvas 쪽에 그려 버려 영상에 담기지 않았고, 그 복사도 헛일이었다).
+  const loop = () => {
+    if (!alive) return;
+    if (cut) sc.drawImage(video, cut.x, cut.y, cut.w, cut.h, 0, 0, width, height);
+    else sc.drawImage(video, 0, 0, width, height);
+    paintFace(sc);
+    requestAnimationFrame(loop);
+  };
   loop(); drawing = {stop: () => { alive = false; }, visibleOnly: true};
   return shown.captureStream(30).getVideoTracks()[0];
 }

@@ -279,7 +279,9 @@ export async function captureAndDeliver(mode, overrides = {}, progress = () => {
   if (!blob) return {cancelled: true};
   const after = mode === 'ocr' ? 'ocr' : options.after;
   const result = await deliver(blob, after, {title: tab.title || '', url: tab.url || '', mode});
-  return {...result, truncated: !!blob.truncated, bytes: blob.size};
+  // 어느 탭을 찍었는지 함께 돌려준다. 끝난 뒤 그 탭 위에 결과를 알려 주기 위해서다
+  // (사이드바를 닫은 탭과 찍은 탭이 다를 수 있다).
+  return {...result, tabId: tab.id, truncated: !!blob.truncated, bytes: blob.size};
 }
 
 // 잠시 뒤 찍을 때 페이지 위에서 세는 숫자. 0 을 주면 지운다. 찍기 전에 반드시 지운다.

@@ -2666,12 +2666,24 @@ enum NativeHost {
         }
         // 상태만 묻는 호출은 아무 것도 바꾸지 않는다.
         if message["action"] as? String == "state" { reply(false); return }
+        // 앱이 상태 파일을 다시 썼는지 보는 표. 윈도우 세션이 같은 방식으로 고친 것을 맥에도 맞춘다.
+        func stamp() -> Date {
+            (try? FileManager.default.attributesOfItem(atPath:Presenter.stateFile?.path ?? "")[.modificationDate] as? Date) ?? Date.distantPast
+        }
         func deliver(_ launched: Bool) {
+            let before=stamp()
             DistributedNotificationCenter.default().postNotificationName(
                 Notification.Name("app.browsersheriff.presenter.command"),
                 object:nil,userInfo:payload,deliverImmediately:true)
-            // 앱이 상태 파일을 고쳐 쓸 틈을 준 뒤 답한다.
-            DispatchQueue.main.asyncAfter(deadline:.now()+0.4) { reply(launched) }
+            // 조절값만 온 것(action 이 없다)은 앱 상태를 바꾸지 않는다 — 기다릴 이유가 없다.
+            // 슬라이더를 끄는 동안 이 0.4초가 그대로 손에 느껴지는 지연이었다.
+            if message["action"] == nil { reply(launched); return }
+            // 명령은 앱이 상태 파일을 고쳐 쓰는 즉시 답한다. 못 쓰면 예전처럼 0.4초까지 기다린다.
+            func look(_ left: Int) {
+                if left <= 0 || stamp() != before { reply(launched); return }
+                DispatchQueue.main.asyncAfter(deadline:.now()+0.02) { look(left-1) }
+            }
+            look(20)
         }
         // 앱이 이미 떠 있으면 바로 보낸다. 미루면 한 번짜리 호출에서 프로세스가 먼저 끝나 버린다.
         if alive { deliver(false); return }

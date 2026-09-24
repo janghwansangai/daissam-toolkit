@@ -1,0 +1,8 @@
+# 줄 끝은 저장소 안에서 언제나 LF 로 둔다. 윈도우에서 체크아웃하면 Git 이 CRLF 로 바꿔 주는데,
+# 그러면 시험의 정규식이 \n 앞의 \r 때문에 어긋났다(윈도우 세션 보고).
+* text=auto eol=lf
+*.png binary
+*.woff2 binary
+*.zip binary
+*.exe binary
+*.ico binary

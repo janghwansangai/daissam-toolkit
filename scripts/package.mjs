@@ -75,9 +75,12 @@ mkdirSync(handout,{recursive:true});
 // 안내문의 버전과 파일 이름은 틀에서 채운다. 손으로 고치면 반드시 낡는다.
 const guide=readFileSync('docs/install-guide.html','utf8').replaceAll('{{VERSION}}',version);
 writeFileSync(`${handout}/0. 먼저 읽어주세요.html`,guide);
+// 설치가 끝난 뒤 읽는 사용설명서. 기능마다 '이럴 때 이렇게' 를 적어 둔다.
+const manual=readFileSync('docs/user-guide.html','utf8').replaceAll('{{VERSION}}',version);
+writeFileSync(`${handout}/1. 사용설명서.html`,manual);
 copyFileSync(extensionZip,`${handout}/${extensionZip.split('/').pop()}`);
 // 건네줄 폴더에는 확장 ZIP 하나만 들어간다. dist/release 의 목록을 그대로 복사하면
 // 받는 사람이 확인할 때 없는 파일 두 개가 FAILED 로 뜬다. 여기 있는 것만 적는다.
 writeFileSync(`${handout}/SHA256SUMS.txt`,
   createHash('sha256').update(readFileSync(extensionZip)).digest('hex')+'  '+extensionZip.split('/').pop()+'\n');
-console.log('건네줄 폴더: '+handout+'  (확장 ZIP 하나에 앱이 모두 들어 있습니다)');
+console.log('건네줄 폴더: '+handout+'  (확장 ZIP 하나에 앱이 모두 들어 있습니다 · 안내문 2개)');
