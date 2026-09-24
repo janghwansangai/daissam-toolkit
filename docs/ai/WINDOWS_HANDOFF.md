@@ -1,7 +1,8 @@
 # 윈도우 작업 인수인계 — 맥 Claude Code → 윈도우 Claude Code
 
-작성: 2026-09-23 · 기준 버전 **v0.34.0** · 작성자: 맥 쪽 세션
+갱신: 2026-09-24 · 기준 버전 **v0.36.3** · 작성자: 맥 쪽 세션
 읽는 순서: `AGENTS.md` → `docs/ai/PROJECT.md` → `docs/ai/HANDOFF.md` → **이 문서** → (필요할 때) `docs/ai/VALIDATION.md`
+새 컴퓨터에서 처음 시작한다면 먼저 **[WINDOWS_START.md](WINDOWS_START.md)**(설치·시작 명령서)를 읽는다. 규칙과 계약은 이 문서가 기준이다.
 
 ## 0. 한 장 요약
 
@@ -9,7 +10,7 @@
 - 확장 코드는 **맥·윈도우가 그대로 함께 쓴다.** 운영체제별로 다른 것은 네이티브 앱뿐이다.
 - 윈도우 쪽에서 맡을 일: **`presenter/windows/Presenter.cs`** (앱 + 네이티브 도우미가 한 파일에 있다)와 `*.cmd`.
 - 지금 문제: **윈도우에서 캡처 기능이 대부분 안 된다.** 무엇이 어디서 끊기는지 실기기에서 확인해야 한다(맥에는 윈도우 런타임이 없어 빌드만 된다).
-- **Git 저장소가 없다.** 두 세션이 같은 파일을 동시에 고치면 서로 덮어쓴다. 아래 3장 규칙을 반드시 지킬 것.
+- 주고받는 곳은 **GitHub 저장소 하나**다(3장). 같은 파일을 양쪽이 고치면 충돌하니 소유 규칙을 반드시 지킬 것.
 
 ## 1. 폴더와 소유권
 
@@ -91,7 +92,7 @@ gh pr create --base main --head windows --title "윈도우: ..." --body "(9장 �
 | 보내는 것 | 필드 | 도우미가 돌려주는 것 |
 |---|---|---|
 | `presenter` | `action`(start·stop·focus-on·focus-off·snip·**snip-save**·pin-clip·pins-clear·pins-unlock·pins-through·state) · `dim` `blur` `ring` `ringSize` `keys` | `{kind:"presenter", ok, launched, running, keys, presenting, focus, pins, through, **camera**}` |
-| `recorder` | `action`(show·update·hide) · `time` · `paused` · `camera` · **`cameraView`** · **`cameraName`** | `{kind:"recorder", ok}` |
+| `recorder` | `action`(show·update·hide) · `time` · `paused` · `camera` · **`cameraView`** · **`cameraName`** · **`display`**(`"<크롬이 부르는 이름>\|<가로>x<세로>"` — 녹화 중인 모니터를 가리는 데 쓴다) | `{kind:"recorder", ok}` |
 | `recorder-watch` | — | `{kind:"recorder", watching:true}` 그 뒤 단추마다 `{kind:"recorder", button:"pause"|"stop"|"cancel"}` |
 | `shot` | `image`(base64) · `save` · `copy` · `ext`(png·jpg) | `{kind:"shot", ok, path, copied}` |
 | `ocr` | `image`(base64) | `{kind:"ocr", ok, text}` |
@@ -138,17 +139,24 @@ copy /Y bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\Presenter.exe ..\
 
 문제를 찾으면 **어느 단계에서 어떤 메시지와 함께 끊겼는지** 를 그대로 적어 돌려준다(추측 말고 실제 출력).
 
-## 7. 요즘 판(v0.33.0~v0.34.0)에 윈도우에 **처음** 들어간 코드 — 모두 런타임 미검증
+## 7. 윈도우에서 **한 번도 돌아간 적 없는 코드** (v0.33.0~v0.36.3) — 실기기 확인 필요
 
-맥에서 컴파일만 확인했다. 실기기에서 다음을 먼저 확인해 주기 바란다.
+맥에서 컴파일만 확인했다. 이 표가 윈도우 세션의 확인 목록이다.
 
 | 기능 | 코드 | 볼 것 |
 |---|---|---|
-| 동그란 카메라 창 | `CameraForm` (MediaCapture + MediaFrameReader) | 녹화 시작 시 창이 뜨는지, 첫 그림이 2.2초 안에 오는지(늦으면 스스로 포기한다), 화면 녹화 영상에 **담기는지**(`SetWindowDisplayAffinity` 를 걸지 않았다), 끌어서 옮겨지는지. 카메라를 못 열면 **아무 창도 띄우지 말 것**(확장이 영상 안에 합쳐 넣는다) |
+| 동그란 카메라 창 | `CameraForm` (MediaCapture + MediaFrameReader) | 녹화 시작에 창이 뜨는지 · 첫 그림이 2.2초 안에 오는지(늦으면 스스로 포기한다) · 화면 녹화 영상에 **담기는지**(`SetWindowDisplayAffinity` 를 걸지 않았다) · 끌어서 옮겨지는지. 카메라를 못 열면 **아무 창도 띄우지 말 것**(확장이 영상 안에 합친다) |
 | 카메라 창 열고 닫기 | `TakeRecorder` 의 `cameraView` | `cameraView` 가 **없는** 알림(1초마다 오는 시간 갱신)에는 창을 건드리면 안 된다. 맥에서 이걸 빠뜨려 창이 1초 만에 사라졌다 |
-| 통과 핀 휠 투명도 | `SyncWheelHook` · `WheelHook` (WH_MOUSE_LL) | 클릭 통과를 켠 핀 **위에서만** 휠이 투명도를 바꾸고, 그 휠이 아래 앱으로 내려가지 않아야 한다. 통과 핀이 없으면 훅을 걸지 않는다(걸린 채 두면 시스템 전체가 느려진다) |
-| 화면 조각 저장 | `BeginSnip(true)` → `SaveShot` | 도크의 ‘선택 영역 캡처’ 가 보내는 `snip-save`. **가상 화면 전체**(`SystemInformation.VirtualScreen`)를 덮어 다른 모니터 위의 앱도 고를 수 있어야 한다. 모니터마다 배율(DPI)이 다르면 좌표가 어긋날 수 있다 — 이 부분이 이번에 가장 미덥지 않다 |
-| 디스플레이 알림 | `DisplayChanged` | 발표 중일 때만 트레이 알림으로 알린다(예전에는 아무 때나 모달 대화상자가 떠서 일을 막았다 — 사용자 보고) |
+| 녹화 중인 모니터 고르기 | `ScreenForCapture` | 확장이 준 `display` 로 그 모니터를 찾는다(픽셀 크기 → 같은 크기가 여럿이면 마우스 쪽 → 이름 속 번호). 표시기·카메라 창이 **녹화 중인 모니터**에 떠야 한다 |
+| 못 가렸을 때 | `OpenCamera` 앞머리 | 모니터가 여럿인데 못 가리면 **카메라 창을 띄우지 않는다** → 확장이 영상 안에 합친다(어느 경우든 녹화본에 카메라가 남게) |
+| 12초 시계 | `badgeWatch` · `StopBadgeWatch` | 녹화 창이 말없이 사라지면(창 닫기·크래시) 12초 안에 표시기·카메라 창이 스스로 사라져야 한다. 녹화가 도는 동안에는 절대 사라지지 않아야 한다 |
+| 통과 핀 휠 투명도 | `SyncWheelHook` · `WheelHook` (WH_MOUSE_LL) | 통과 핀 **위에서만** 휠이 투명도를 바꾸고, 그 휠이 아래 앱으로 내려가지 않아야 한다. 통과 핀이 없으면 훅을 걸지 않는다 |
+| 화면 조각 저장 | `BeginSnip(true)` → `SaveShot` | 도크의 ‘선택 영역 캡처’ 가 보내는 `snip-save`. **가상 화면 전체**(`SystemInformation.VirtualScreen`)를 덮어 다른 모니터 위의 앱도 고를 수 있어야 한다. 모니터마다 배율(DPI)이 다르면 좌표가 어긋날 수 있다 — 가장 미덥지 않은 부분 |
+| 디스플레이 알림 | `DisplayChanged` | 발표 중일 때만 트레이 알림으로 알린다(예전에는 아무 때나 모달 대화상자가 떠서 일을 막았다) |
+
+### 맥에서 배운 것 — 윈도우에도 해당될 수 있는 함정
+- **창을 화면에서 내리는 일은 확인해야 한다.** 맥은 `orderOut` 만으로는 남는 경우가 있어 `close()` 까지 부른다(v0.36.3). 윈도우에서도 `Hide()` 만으로 남지 않는지 실제 창 목록으로 확인할 것.
+- **화면 녹화에서 창을 빼는 설정은 표시기에만.** 맥에서 오버레이·핀에 `sharingType=.none` 을 걸어 두어 **발표·집중·핀이 녹화 영상에 하나도 안 담겼다**(v0.36.3에서 고침). 윈도우의 `WDA_EXCLUDEFROMCAPTURE` 도 **표시기(BadgeForm)에만** 걸려 있어야 한다. 핀·카메라 창·발표 표시에는 걸지 말 것.
 
 ## 8. 하지 말 것
 

@@ -98,6 +98,18 @@ test('앱이 그리는 창은 화면 녹화에 담기고, 표시기만 빠진다
   assert.match(swift, /own\.isEmpty \? SCContentFilter\(display:display,excludingWindows:mine\)/);
 });
 
+// 윈도우도 같은 규칙: 화면 녹화에서 빼는 것은 표시기 하나뿐이다.
+test('윈도우에서 녹화 제외는 표시기에만 걸린다', () => {
+  const cs = readFileSync('presenter/windows/Presenter.cs', 'utf8');
+  // 선언(DllImport)과 주석은 빼고, 실제로 부르는 곳만 센다.
+  const calls = cs.split('\n')
+    .filter(line => !line.trim().startsWith('//') && !line.includes('DllImport'))
+    .join('\n').match(/Native\.SetWindowDisplayAffinity\([^)]*\)/g) || [];
+  assert.equal(calls.length, 1, '한 곳(표시기)에서만 부른다: ' + calls.join(' / '));
+  const badge = cs.slice(cs.indexOf('sealed class BadgeForm:Form'), cs.indexOf('sealed class Presenter', cs.indexOf('sealed class BadgeForm:Form')) + 1);
+  assert.match(badge, /SetWindowDisplayAffinity\(Handle,Native\.ExcludeFromCapture\)/, '그 한 곳은 표시기다');
+});
+
 // 창은 화면에서 확실히 내려가야 한다(orderOut 만으로 남는 경우가 있었다).
 test('창을 내릴 때는 close 까지 부른다', () => {
   const swift = readFileSync('presenter/macos/Presenter.swift', 'utf8');

@@ -20,6 +20,7 @@
 - v0.35.0 함정 ②: **`record.js` 의 `screen` 은 녹화 스트림 변수**다. 화면 크기는 반드시 `window.screen` 으로 읽는다(두 번째로 같은 자리에 물렸다).
 - v0.35.0 카메라 규칙: 앱이 그리는 동그란 창은 `displaySurface === 'monitor'` 일 때만 영상에 담긴다. 창·탭을 고르면 확장이 영상 안에 합친다. 사용자가 사이드바에서 ‘영상 안에 합치기’ 를 직접 켤 수도 있다(`camMix`).
 - (이전) v0.34.0(카메라 창 유지·첫 고르기 두 갈래 방어·윈도우 디스플레이 알림·윈도우 인수인계 문서) 반영·서명·설치·포장 완료(2026-09-23). 윈도우 전부 미검증 / 맥 Claude(이 폴더 단독 편집).
+- **윈도우 세션이 새 컴퓨터에서 시작할 때**: `docs/ai/WINDOWS_START.md`(설치·시작 명령서) → `docs/ai/WINDOWS_HANDOFF.md`(규칙·계약). 두 문서는 맥 세션이 갱신한다.
 - **저장소**: https://github.com/janghwansangai/daissam-toolkit (비공개, 기본 브랜치 `main`). `dist/`·`.build/`·`presenter/windows/bin|obj` 는 올리지 않는다(.gitignore).
 - **윈도우 세션과 나눠 일한다**: `docs/ai/WINDOWS_HANDOFF.md` 를 먼저 읽을 것. 윈도우 세션은 **`windows` 브랜치**에서 `presenter/windows/**` 만 고치고 PR 로 올린다. 맥 세션은 `main` 에서 `extension/**`·`presenter/macos/**`·`dist/**`·버전 번호를 소유하고, PR 을 확인해 합친다. 같은 파일을 양쪽이 고치지 말 것.
 - v0.34.0 함정(중요): **표시기에 보내는 모든 알림에 `cameraView` 를 실어야 한다.** 1초마다 가는 `badge('update')` 에서 빠뜨려 앱이 카메라 창을 1초 만에 닫았다. 새 상태값을 더할 때마다 `show`·`update` 양쪽을 볼 것.
