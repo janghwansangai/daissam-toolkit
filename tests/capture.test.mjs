@@ -74,6 +74,48 @@ test('캡처가 끝나면 사이드바를 되살리고 결과를 알린다', () 
   assert.match(readFileSync('extension/panel.js', 'utf8'), /lastCapture\?\.text/);
 });
 
+// 발표 오버레이·핀·카메라 창은 사용자의 화면 녹화에 **담겨야** 한다. 예전에는 창마다
+// sharingType=.none 을 걸어(확대 화면이 스스로를 찍는 되먹임을 막으려고) 녹화 영상에
+// 하나도 남지 않았다(사용자 보고). 되먹임은 확대용 SCContentFilter 가 막는다.
+test('앱이 그리는 창은 화면 녹화에 담기고, 표시기만 빠진다', () => {
+  const swift = readFileSync('presenter/macos/Presenter.swift', 'utf8');
+  // 주석은 걷어 내고 본다 — 설명에 적힌 'sharingType' 까지 걸리면 안 된다.
+  const chunk = (from, to) => swift.slice(swift.indexOf(from), swift.indexOf(to, swift.indexOf(from)))
+    .split('\n').filter(line => !line.trim().startsWith('//')).join('\n');
+  // 담겨야 하는 것들
+  const pin = chunk('init(image: NSImage, host: Presenter, centre: NSPoint)', 'level=Pin.level');
+  assert.doesNotMatch(pin, /sharingType/, '핀은 녹화에 담긴다');
+  const overlay = chunk('let panel=NSPanel(contentRect:selected.frame', 'let canvas=LiveView');
+  assert.doesNotMatch(overlay, /sharingType/, '발표 오버레이는 녹화에 담긴다');
+  const camera = chunk('final class CameraPanel: NSPanel', 'final class Presenter: NSObject');
+  assert.doesNotMatch(camera, /sharingType/, '카메라 창은 녹화에 담긴다');
+  // 빠져야 하는 것: 녹화 표시기
+  const badge = chunk('final class BadgePanel: NSPanel', '@objc private func tap');
+  assert.match(badge, /sharingType = \.none/, '표시기는 녹화에서 빠진다');
+  // 되먹임 막기: 확대용 캡처에서만 이 앱을 뺀다(두 겹)
+  assert.match(swift, /excludingApplications:own,exceptingWindows:\[\]/);
+  assert.match(swift, /let mine=content\.windows\.filter\{\$0\.owningApplication\?\.processID==ProcessInfo\.processInfo\.processIdentifier\}/);
+  assert.match(swift, /own\.isEmpty \? SCContentFilter\(display:display,excludingWindows:mine\)/);
+});
+
+// 창은 화면에서 확실히 내려가야 한다(orderOut 만으로 남는 경우가 있었다).
+test('창을 내릴 때는 close 까지 부른다', () => {
+  const swift = readFileSync('presenter/macos/Presenter.swift', 'utf8');
+  assert.match(swift, /extension NSWindow \{[\s\S]{0,240}func vanish\(\)[\s\S]{0,160}close\(\)/);
+  for (const site of [/blink=nil; vanish\(\)/, /preview=nil\n\s*vanish\(\)/, /window\?\.vanish\(\);window=nil/, /notice\?\.vanish\(\); notice=nil/, /snip\?\.vanish\(\); snip=nil/])
+    assert.match(swift, site, String(site));
+  // 모니터가 빠지면 표시기·카메라 창을 남은 화면으로 데려온다.
+  assert.match(swift, /func displayChanged\(\)\{[\s\S]{0,600}place\(on:screenInUse\(\)\)/);
+});
+
+// 녹화 중인 모니터를 가리지 못하면 카메라 창을 띄우지 않는다(확장이 영상 안에 합친다).
+test('모니터를 가리지 못하면 카메라 창을 띄우지 않는다', () => {
+  assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'),
+    /if NSScreen\.screens\.count > 1 && onScreen == nil \{[\s\S]{0,160}return/);
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
+    /if\(Screen\.AllScreens\.Length>1&&onScreen==null\)\{[\s\S]{0,160}return;/);
+});
+
 // 카메라 동그라미: 전체 화면 녹화는 앱이 띄운 동그란 창이 화면에 보이고 녹화에도 담긴다.
 // 앱이 못 띄우면(권한 없음·앱 없음) 확장이 영상 안에 합쳐 넣는다 — 둘 다 나오면 안 된다.
 test('카메라 동그라미는 앱이 띄우고, 못 띄우면 영상 안에 합쳐 넣는다', () => {

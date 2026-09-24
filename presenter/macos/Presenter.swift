@@ -6,6 +6,17 @@ import Carbon.HIToolbox
 import Vision
 import AVFoundation
 
+// 창을 화면에서 확실히 내린다. orderOut 만으로는 남는 경우가 있었다(디스플레이 구성이
+// 바뀐 뒤 등 — 녹화가 끝났는데 카메라 창만 남는 증상). close() 까지 불러 쐐기를 박는다.
+// 우리 창은 모두 isReleasedWhenClosed=false 라 객체는 살아 있다(여기서 한 번 더 확인한다).
+extension NSWindow {
+    func vanish() {
+        orderOut(nil)
+        if isReleasedWhenClosed { isReleasedWhenClosed=false }
+        close()
+    }
+}
+
 // MARK: 단축키
 // 사이드바가 "focus=ctrl+alt+F;snip=ctrl+alt+S;…" 꼴로 보낸다. 맥과 윈도우는 운영체제가
 // 미리 가져간 조합이 서로 달라, 사이드바가 이 컴퓨터용 한 벌만 골라 보낸다. 받은 글은
@@ -180,6 +191,7 @@ final class BadgePanel: NSPanel {
         hasShadow=true
         isMovableByWindowBackground=true        // 배경을 끌어 옮긴다
         hidesOnDeactivate=false
+        isReleasedWhenClosed=false
         collectionBehavior=[.canJoinAllSpaces,.fullScreenAuxiliary,.ignoresCycle]
         let skin=BadgeSkin(frame:NSRect(x:0,y:0,width:268,height:46))
         skin.wantsLayer=true
@@ -240,7 +252,7 @@ final class BadgePanel: NSPanel {
     }
     func remember() { UserDefaults.standard.set("\(frame.origin.x),\(frame.origin.y)",forKey:BadgePanel.spotKey) }
     override func mouseUp(with event: NSEvent) { super.mouseUp(with:event); remember() }
-    func dismiss() { blink?.invalidate(); blink=nil; orderOut(nil) }
+    func dismiss() { blink?.invalidate(); blink=nil; vanish() }
     override var canBecomeKey: Bool { false }
 }
 
@@ -366,7 +378,7 @@ final class CameraPanel: NSPanel {
         if session.isRunning { session.stopRunning() }
         for input in session.inputs { session.removeInput(input) }
         preview?.removeFromSuperlayer(); preview=nil
-        orderOut(nil)
+        vanish()
     }
 }
 
@@ -525,7 +537,9 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             screen=selected;displayID=number.uint32Value
             let panel=NSPanel(contentRect:selected.frame,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
             panel.level = .screenSaver;panel.isOpaque=false;panel.backgroundColor = .clear;panel.hasShadow=false;panel.ignoresMouseEvents=true
-            panel.sharingType = .none
+            // sharingType 은 건드리지 않는다(기본값 = 화면 녹화에 담긴다). 예전에는 .none 이라
+            // 확대·집중 모드가 **녹화 영상에 하나도 남지 않았다**(사용자 보고). 자기 화면을
+            // 되먹임하지 않는 일은 아래 SCContentFilter 가 이 앱을 빼는 것으로 이미 한다.
             panel.collectionBehavior=[.canJoinAllSpaces,.fullScreenAuxiliary,.stationary];panel.hidesOnDeactivate=false
             let canvas=LiveView(frame:NSRect(origin:.zero,size:selected.frame.size))
             canvas.pointerSize=ringSize;canvas.dim=focusDim;canvas.ringColor=Presenter.color(ringHex)
@@ -534,7 +548,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             canvas.scale=scale; canvas.focus=focus; canvas.focusRadius=focusRadius
             let old=window
             window=panel;view=canvas
-            old?.orderOut(nil)
+            old?.vanish()
             // An accessory app with no on-screen window may be missing from the shareable list, which would
             // leave the exclusion empty and let the overlay capture itself. Show the panel first, then query.
             panel.orderFrontRegardless()
@@ -542,9 +556,11 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             guard token==generation else{return}
             guard let display=content.displays.first(where:{$0.displayID==displayID}) else {throw NSError(domain:"디스플레이에 접근할 수 없습니다.",code:2)}
             let own=content.applications.filter{$0.processID==ProcessInfo.processInfo.processIdentifier}
-            // panel.sharingType = .none already keeps the overlay out of the capture, and that is exactly
-            // why this app is usually absent from the shareable list. Excluding by app is only a second lock.
-            let filter=own.isEmpty ? SCContentFilter(display:display,excludingWindows:[])
+            // 이 앱의 창(오버레이·핀·카메라)은 '확대용 캡처' 에서만 뺀다. 그래야 확대 화면이
+            // 스스로를 되먹이지 않고(v0.5.2 증상), 그러면서도 사용자의 화면 녹화에는 담긴다.
+            // 앱 단위로 빼는 것이 첫 자물쇠, 창 목록으로 빼는 것이 두 번째다(목록이 비는 경우).
+            let mine=content.windows.filter{$0.owningApplication?.processID==ProcessInfo.processInfo.processIdentifier}
+            let filter=own.isEmpty ? SCContentFilter(display:display,excludingWindows:mine)
                                    : SCContentFilter(display:display,excludingApplications:own,exceptingWindows:[])
             let config=SCStreamConfiguration()
             config.width=Int(selected.frame.width*selected.backingScaleFactor)
@@ -695,7 +711,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         CGDisplayShowCursor(displayID)
         if let tap=tap{CGEvent.tapEnable(tap:tap,enable:false);CFMachPortInvalidate(tap)};tap=nil
         if let source=tapSource{CFRunLoopRemoveSource(CFRunLoopGetMain(),source,.commonModes)};tapSource=nil
-        window?.orderOut(nil);window=nil;view=nil
+        window?.vanish();window=nil;view=nil
         publishState()
         if let stream=stream{Task{try? await stream.stopCapture()}};stream=nil;status?.button?.title=status?.button?.image==nil ? "다있쌤 ↗" : ""
     }
@@ -797,6 +813,14 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
     }
     func openCamera(_ name: String){
         guard camera==nil else { return }
+        // 모니터가 여러 대인데 '녹화 중인 화면' 을 가려내지 못했으면 띄우지 않는다. 엉뚱한
+        // 모니터에 뜨면 녹화 영상에 카메라가 하나도 남지 않는다. 안 띄우면 확장이 영상 안에
+        // 동그랗게 합쳐 넣으므로, 어느 경우든 녹화본에는 카메라가 남는다.
+        let onScreen=screenForCapture(recordDisplay)
+        if NSScreen.screens.count > 1 && onScreen == nil {
+            tell("녹화 중인 모니터를 가리지 못해 카메라를 영상 안에 담습니다")
+            return
+        }
         let panel=CameraPanel(side:220)
         guard panel.begin(name:name) else {
             // 권한을 아직 안 줬거나 카메라가 없다. 확장이 영상 안에 합쳐 넣는다.
@@ -805,7 +829,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             }
             return
         }
-        panel.place(on:screenForCapture(recordDisplay))
+        panel.place(on:onScreen)
         panel.orderFrontRegardless()
         camera=panel
     }
@@ -895,7 +919,18 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         guard text.count == 6, let value=UInt32(text,radix:16) else { return NSColor(calibratedRed:0.87,green:0.95,blue:0.61,alpha:1) }
         return NSColor(calibratedRed:CGFloat((value>>16)&0xff)/255,green:CGFloat((value>>8)&0xff)/255,blue:CGFloat(value&0xff)/255,alpha:1)
     }
-    @objc func displayChanged(){for pin in pins{pin.layout()};if active||starting{stopAction();tell("디스플레이가 바뀌어 발표를 끝냈습니다")}}
+    @objc func displayChanged(){
+        for pin in pins { pin.layout() }
+        // 모니터가 빠지면 그 화면에 있던 창이 갈 곳을 잃는다. 남은 화면으로 다시 데려온다.
+        for panel in [badge as NSWindow?, camera as NSWindow?].compactMap({$0}) {
+            if !NSScreen.screens.contains(where:{ $0.frame.intersects(panel.frame) }) {
+                if let badge=panel as? BadgePanel { badge.place(on:screenInUse()) }
+                if let camera=panel as? CameraPanel { camera.place(on:screenInUse()) }
+                panel.orderFrontRegardless()
+            }
+        }
+        if active||starting { stopAction(); tell("디스플레이가 바뀌어 발표를 끝냈습니다") }
+    }
     func openSettings(_ pane: String) {
         if let url=URL(string:"x-apple.systempreferences:com.apple.preference.security?"+pane) {
             NSWorkspace.shared.open(url)
@@ -905,7 +940,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
     // 모달 경고창은 주 실행 루프를 잡는다. 그 동안 사이드바 명령도 메뉴도 전혀 듣지 않는다.
     // 사이드바에서 온 일로 알릴 때는 막지 않는 쪽지를 쓴다.
     func tell(_ text: String) {
-        notice?.orderOut(nil); notice=nil
+        notice?.vanish(); notice=nil
         guard let screen=NSScreen.screens.first(where:{$0.frame.contains(NSEvent.mouseLocation)}) ?? NSScreen.main else { return }
         let style:[NSAttributedString.Key:Any]=[.font:NSFont.boldSystemFont(ofSize:14),.foregroundColor:NSColor.white]
         let size=(text as NSString).size(withAttributes:style)
@@ -922,7 +957,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         notice=panel
         panel.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline:.now()+2.6){[weak self] in
-            if self?.notice === panel { panel.orderOut(nil); self?.notice=nil }
+            if self?.notice === panel { panel.vanish(); self?.notice=nil }
         }
     }
     // MARK: 화면 조각 핀 동작
@@ -1147,8 +1182,8 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         else { tell("저장도 복사도 하지 못했습니다") }
     }
     func endSnip(){
-        snip?.orderOut(nil); snip=nil
-        for panel in snipMore { panel.orderOut(nil) }
+        snip?.vanish(); snip=nil
+        for panel in snipMore { panel.vanish() }
         snipMore=[]
         snipSave=false
         restoreAfterSnip()
@@ -1168,8 +1203,9 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
 // MARK: 화면 조각 핀 (Snipaste 의 붙이기)
 // 잘라낸 그림을 늘 위에 뜨는 작은 창으로 띄운다. 발표 기능과 부딪히지 않게 두 가지를 지킨다.
 //  1) 핀은 발표 오버레이보다 위 레벨에 둔다. 확대·집중 모드에서도 가려지지 않는다.
-//  2) 핀도 sharingType = .none 이라 화면 캡처에 잡히지 않는다. 확대 화면 안에 핀이 한 번 더
-//     겹쳐 그려지거나 스스로를 찍는 되먹임(v0.5.2 의 재캡처 증상)이 생기지 않는다.
+//  2) 핀은 사용자의 화면 녹화에 담긴다(v0.36.3). 확대 화면 안에 겹쳐 그려지거나 스스로를
+//     찍는 되먹임(v0.5.2 의 재캡처 증상)은 확대용 SCContentFilter 가 이 앱의 창을 빼서 막는다.
+//     예전에는 창마다 sharingType = .none 을 걸어 막았는데, 그러면 녹화 영상에도 안 남았다.
 enum Pin {
     static let edge: CGFloat = 3
     static let minSide: CGFloat = 40
@@ -1642,7 +1678,8 @@ final class PinWindow: NSPanel {
         self.source=image; self.shown=image; self.host=host
         super.init(contentRect:NSRect(x:0,y:0,width:80,height:60),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         isOpaque=false; backgroundColor = .clear; hasShadow=true
-        sharingType = .none
+        // sharingType 은 건드리지 않는다 — 핀은 **화면 녹화에 담겨야 한다**(사용자 보고).
+        // 확대 화면에 겹쳐 그려지는 일은 SCContentFilter 가 이 앱을 빼는 것으로 막는다.
         collectionBehavior=[.canJoinAllSpaces,.fullScreenAuxiliary,.stationary]
         hidesOnDeactivate=false; isMovableByWindowBackground=false; isFloatingPanel=true
         // isFloatingPanel 을 켜면 창 레벨이 floating 으로 되돌아간다. 그러면 발표 오버레이

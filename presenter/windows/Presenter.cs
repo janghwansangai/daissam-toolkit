@@ -1938,13 +1938,19 @@ namespace BrowserSheriff {
     }
     void OpenCamera(string name){
       if(cameraView!=null&&!cameraView.IsDisposed)return;
+      // 모니터가 여러 대인데 '녹화 중인 화면' 을 가려내지 못했으면 띄우지 않는다. 엉뚱한
+      // 모니터에 뜨면 녹화 영상에 카메라가 남지 않는다. 안 띄우면 확장이 영상 안에 합친다.
+      Screen onScreen=ScreenForCapture(recordDisplay);
+      if(Screen.AllScreens.Length>1&&onScreen==null){
+        Tell("녹화 중인 모니터를 가리지 못해 카메라를 영상 안에 담습니다");
+        return;
+      }
       CameraForm view=new CameraForm();
       // 첫 그림이 들어와야 창을 띄우고 '띄웠다' 고 알린다. 확장은 그 표시를 보고 영상에
       // 합칠지 정한다. 늦게 뜨면 둘 다 보이므로, 2.2초 안에 못 열면 아예 포기한다.
-      Screen where_=ScreenForCapture(recordDisplay);
       view.Ready=delegate{
         if(cameraView!=view)return;
-        view.Place(where_);view.Show();PublishState();
+        view.Place(onScreen);view.Show();PublishState();
       };
       cameraView=view;
       view.Begin(name);
