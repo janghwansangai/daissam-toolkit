@@ -859,6 +859,13 @@ event('rec-start','click',async()=>{
     await chrome.windows.create({url:chrome.runtime.getURL('camera.html'),type:'popup',width:760,height:680});
     return;
   }
+  // '이 탭'·'선택 영역' 은 지금 보고 있는 탭을 찍는다. Chrome 이 보호하는 페이지(새 탭·
+  // 설정·확장 프로그램·웹 스토어)면 여기서 막고 까닭을 보여 준다 — 사이드바를 닫아 버리면
+  // 아무 말도 못 하고 끝난다(사용자 보고: 버튼이 안 듣는다).
+  if(recOptions.mode==='tab'||recOptions.mode==='area'){
+    try{ await api('record-check',{mode:recOptions.mode}); }
+    catch(error){ capSay(error.message); return; }
+  }
   if(recOptions.mode==='area')capSay('페이지에서 녹화할 곳을 끌어 고르세요. Esc 로 그만둡니다.');
   const {mode,...options}=recOptions;
   // 선택 영역은 카메라 없이 녹화한다. 사이드바 설정이 켜져 있어도 보내지 않는다.

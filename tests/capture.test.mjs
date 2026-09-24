@@ -315,6 +315,25 @@ test('합쳐 담을 크기는 첫 장을 보고 정한다', () => {
   assert.match(body, /let frame = first;/);
 });
 
+// Chrome 이 보호하는 페이지(새 탭·설정·확장 프로그램·웹 스토어)에서는 '이 탭'·'선택 영역'
+// 녹화가 될 수 없다. 예전에는 사이드바가 그냥 닫히고 아무 일도 안 일어났다(사용자 보고).
+test('보호된 페이지에서는 이 탭·선택 영역 녹화를 막고 까닭을 알린다', () => {
+  const core = readFileSync('extension/capture-core.js', 'utf8');
+  assert.match(core, /export async function targetTab\(\{strict = false\} = \{\}\)/);
+  assert.match(core, /throw new Error\('CHROME_PAGE'\)/);
+  // 앞에 있는 것이 우리 확장 페이지면 같은 창의 최근 웹페이지를 쓴다(그건 '이 탭' 이 아니다).
+  assert.match(core, /chrome\.tabs\.query\(\{windowId: tab\.windowId, url: \['http:\/\/\*\/\*', 'https:\/\/\*\/\*'\]\}\)/);
+  const back = readFileSync('extension/background.js', 'utf8');
+  assert.match(back, /function recordWhy\(error\)/);
+  assert.match(back, /if\(m\.type==='record-check'\)/);
+  assert.match(back, /tell\('녹화하지 못했습니다',why\)/);
+  assert.match(back, /targetTab\(\{strict:true\}\)/);
+  // 사이드바는 닫기 전에 미리 물어본다 — 닫아 버리면 까닭을 보여 줄 곳이 없다.
+  const panel = readFileSync('extension/panel.js', 'utf8');
+  assert.match(panel, /api\('record-check',\{mode:recOptions\.mode\}\)/);
+  assert.ok(panel.indexOf("'record-check'") < panel.indexOf("type:'record-open'"), '묻고 나서 연다');
+});
+
 // 선택 영역 녹화는 카메라를 쓰지 않는다(사용자 요청). 세 곳에서 막는다.
 test('선택 영역에서는 카메라를 쓰지 않는다', () => {
   assert.match(readFileSync('extension/record.js', 'utf8'),

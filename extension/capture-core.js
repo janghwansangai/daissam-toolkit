@@ -17,8 +17,23 @@ export async function captureOptions() {
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const isWeb = tab => /^https?:/i.test(tab?.url || '');
-export async function targetTab() {
+// strict: 지금 보고 있는 그 탭만 쓴다. 녹화('이 탭'·'선택 영역')는 몰래 다른 창의 탭으로
+// 바꿔치기하면 안 된다 — 엉뚱한 화면이 녹화된다.
+export async function targetTab({strict = false} = {}) {
   let [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true, windowType: 'normal'});
+  if (strict) {
+    if (!tab) throw new Error('브라우저 창을 찾지 못했습니다.');
+    if (isWeb(tab)) return tab;
+    // 앞에 있는 것이 우리 확장 페이지(편집기·설정 탭 등)면 사용자가 말하는 '이 탭' 이 아니다.
+    // 같은 창에서 가장 최근에 보던 웹페이지를 쓴다.
+    if ((tab.url || '').startsWith(chrome.runtime.getURL(''))) {
+      const web = await chrome.tabs.query({windowId: tab.windowId, url: ['http://*/*', 'https://*/*']});
+      const recent = web.sort((a, b) => (a.lastAccessed || 0) - (b.lastAccessed || 0)).pop();
+      if (recent) return recent;
+    }
+    // 그 밖은 Chrome 이 보호하는 페이지다(새 탭·설정·확장 프로그램·웹 스토어).
+    throw new Error('CHROME_PAGE');
+  }
   // 따로 띄운 도크 창에서 부르면 '마지막 초점 창' 이 그 도크(팝업)라 아무 탭도 잡히지 않았다
   // — '캡처할 탭을 찾지 못했습니다' 의 원인. 앞에 있는 것이 편집기처럼 찍을 수 없는 탭일 때도
   // 마찬가지다. 그럴 때는 다른 보통 창에서 마지막에 쓰던 웹페이지를 찾는다.
