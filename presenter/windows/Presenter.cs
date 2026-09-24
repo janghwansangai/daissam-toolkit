@@ -1254,9 +1254,14 @@ namespace BrowserSheriff {
     public CameraForm(){
       FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;
       Size=new Size(220,220);BackColor=Color.Black;
-      Region=System.Drawing.Region.FromHrgn(Native.CreateRoundRectRgn(0,0,Width+1,Height+1,Width,Height));
       SetStyle(ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint|ControlStyles.UserPaint,true);
       MouseDown+=Grab;
+    }
+    // 둥근 모양은 창 손잡이가 생긴 뒤에 건다. OpenCamera 가 첫 그림을 받으려고 손잡이를
+    // 미리 만들어 두므로, 생성자에 있던 것을 이 자리로 옮겼다 — 그 길로도 모양이 살아 있게.
+    protected override void OnHandleCreated(EventArgs e){
+      base.OnHandleCreated(e);
+      Region=System.Drawing.Region.FromHrgn(Native.CreateRoundRectRgn(0,0,Width+1,Height+1,Width,Height));
     }
     protected override bool ShowWithoutActivation{get{return true;}}
     void Grab(object sender,MouseEventArgs e){
@@ -1898,6 +1903,16 @@ namespace BrowserSheriff {
       // 소식이 없으면 스스로 거둔다.
       StopBadgeWatch();
       badgeWatch=new System.Windows.Forms.Timer{Interval=12000};
+      // 녹화가 도는 동안의 기준은 위의 12초 그대로다. 그런데 'show' 를 받은 뒤 첫 'update'
+      // 가 오기까지는 확장이 recorder 알림을 하나도 보내지 않는다(record.js: badge('show')
+      // → appCameraUp() → countdown() → 창 내리기 → recorder.start() → 그때 비로소 tick 이
+      // badge('update') 를 보낸다). 그 공백은 윈도우에서 실측 기준 appCameraUp() 최악 12.4초
+      // (상태 질의 한 번이 프로세스 하나라 12×220ms 가정이 성립하지 않는다) + 카운트다운
+      // 최대 10초 + 0.42초다. 12초로 두면 이 시계가 그 공백 안에서 울어, 녹화가 막 시작되는
+      // 순간 표시기와 카메라 창을 거둬 버린다 — 녹화본에 카메라가 안 담기고 멈출 자리도
+      // 없어진다. 그래서 첫 소식까지만 넉넉히 둔다. 창이 갑자기 사라지는 경우는 record.js 의
+      // pagehide 와 서비스 워커의 windows.onRemoved 가 즉시 처리한다(v0.36.1 의 세 겹).
+      if(action=="show")badgeWatch.Interval=30000;
       badgeWatch.Tick+=delegate{
         StopBadgeWatch();
         if(badge!=null&&!badge.IsDisposed){badge.Close();badge.Dispose();}
@@ -1954,6 +1969,12 @@ namespace BrowserSheriff {
         return;
       }
       CameraForm view=new CameraForm();
+      // 첫 그림은 BeginInvoke 로 UI 실로 건너와야 한다. 그런데 Form 은 Show() 를 하기 전까지
+      // 창 손잡이가 없고(IsHandleCreated=false), 그림이 오는 자리가 손잡이가 없으면 건너오기를
+      // 통째로 건너뛴다. 그래서 Ready 가 한 번도 불리지 않고 — Ready 가 바로 Show() 를 부르는
+      // 자리다 — 2.2초 뒤 giveUp 이 거두었다. 윈도우에서 동그란 카메라 창이 한 번도 뜨지 않은
+      // 까닭이다. 손잡이를 먼저 만들어 둔다. 창은 아직 보이지 않는다(Visible 은 Show() 에서 켜진다).
+      if(view.Handle==IntPtr.Zero){view.Dispose();return;}
       // 첫 그림이 들어와야 창을 띄우고 '띄웠다' 고 알린다. 확장은 그 표시를 보고 영상에
       // 합칠지 정한다. 늦게 뜨면 둘 다 보이므로, 2.2초 안에 못 열면 아예 포기한다.
       view.Ready=delegate{
@@ -2371,6 +2392,10 @@ namespace BrowserSheriff {
       if(!root.TryGetProperty(key,out node)||!node.TryGetInt32(out value))return 0;
       return value;
     }
+    // 앱이 상태 파일을 다시 썼는지 보는 표. 파일이 없으면 DateTime.MinValue 가 돌아온다.
+    static DateTime StateStamp(){
+      try{return File.GetLastWriteTimeUtc(Presenter.StateFile);}catch{return DateTime.MinValue;}
+    }
     static Shown ReadState(){
       Shown now=new Shown();
       if(!Alive())return now;
@@ -2431,10 +2456,14 @@ namespace BrowserSheriff {
         Thread.Sleep(400);
         if(!File.Exists(Presenter.CommandFile)){Reply(true);return;}
       }
+      DateTime before=StateStamp();
       try{using(EventWaitHandle door=EventWaitHandle.OpenExisting(Presenter.CommandEvent))door.Set();}
       catch{Send(new{kind="presenter",ok=false,message="발표 도우미 앱에 연결하지 못했습니다."});return;}
-      // 앱이 상태 파일을 고쳐 쓸 틈을 준 뒤 답한다.
-      Thread.Sleep(400);
+      // 앱이 상태 파일을 고쳐 쓸 틈을 준 뒤 답한다. 예전에는 무조건 400ms 를 잤다. 사이드바의
+      // 조절값(어둡기·흐림·고리 색·고리 크기)은 끌 때마다 input 마다 한 번씩 오고, 그 한 번마다
+      // 이 프로세스가 새로 뜨므로 그 400ms 가 그대로 손에 느껴지는 지연이 되었다. 이제 앱이
+      // 상태를 다시 쓰는 즉시 답하고 400ms 는 한도로만 쓴다(못 쓰면 예전과 같이 400ms 기다린다).
+      for(int waited=0;waited<20&&StateStamp()==before;waited++)Thread.Sleep(20);
       Reply(launched);
     }
     static void Handle(string raw){
@@ -2493,7 +2522,11 @@ namespace BrowserSheriff {
         string raw;
         while(inbox.TryDequeue(out raw))Handle(raw);
         if(closed){
-          if(leaveAt==DateTime.MaxValue)leaveAt=DateTime.UtcNow.AddSeconds(1);
+          // 큐를 비운 뒤 잠깐만 더 머문다. 예전에는 1초였는데, 사이드바 조절값처럼 잇달아
+          // 오는 명령에서는 그 1초 동안 프로세스가 겹겹이 쌓인다(실측: 0.7초 동안 12번
+          // 보내면 도우미 13개가 동시에 떠 합쳐 465MB). closed 는 읽기 실이 다 넣고 나서
+          // 켜지므로 큐가 빈 것만 확인하면 놓치는 명령은 없다 — 1초는 여유였을 뿐이다.
+          if(leaveAt==DateTime.MaxValue)leaveAt=DateTime.UtcNow.AddMilliseconds(250);
           if(inbox.IsEmpty&&DateTime.UtcNow>=leaveAt)break;
         }
         if(collecting)Poll();
