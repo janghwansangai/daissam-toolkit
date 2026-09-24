@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "다있쌤",
-  "version": "0.36.3",
+  "version": "0.36.4",
   "description": "프로필 오사용 방지, 동기화 메모, 폴더 북마크, 발표 도우미, 수업 유틸리티",
   "minimum_chrome_version": "120",
   "permissions": [

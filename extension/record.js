@@ -10,7 +10,9 @@ const want = {
   mode: ask.get('mode') || 'desktop',
   tab: Number(ask.get('tab')) || 0,
   rect: ask.get('rect') ? JSON.parse(ask.get('rect')) : null,
-  camera: ask.get('camera') === 'true', cameraId: ask.get('cameraId') || '', cameraName: ask.get('cameraName') || '',
+  // 선택 영역 녹화는 카메라를 쓰지 않는다(사용자 요청). 사이드바에서도 못 고르게 해 두었다.
+  camera: ask.get('camera') === 'true' && ask.get('mode') !== 'area',
+  cameraId: ask.get('cameraId') || '', cameraName: ask.get('cameraName') || '',
   mic: ask.get('mic') !== 'false', micId: ask.get('micId') || '',
   controlBar: ask.get('controlBar') !== 'false',
   res: Number(ask.get('res')) || 1080, format: ask.get('format') || 'mp4',
@@ -167,19 +169,33 @@ async function appCameraUp() {
   return false;
 }
 async function composed(videoTrack) {
-  const settings = videoTrack.getSettings();
+  // 화면 크기는 **첫 장을 보고** 정한다. 트랙에 물어보면(getSettings) 탭 캡처처럼 아직
+  // 크기를 모른다고 답하는 경우가 있고, 그때 예전 코드는 OffscreenCanvas 를 만들다 죽어
+  // 녹화가 아예 시작되지 않았다(사용자 보고: '이 탭' + 카메라).
+  const asked = videoTrack.getSettings() || {};
+  const modern = 'MediaStreamTrackProcessor' in window && 'MediaStreamTrackGenerator' in window;
+  let reader = null, first = null, sourceW = asked.width || 0, sourceH = asked.height || 0;
+  if (modern) {
+    reader = new MediaStreamTrackProcessor({track: videoTrack}).readable.getReader();
+    const step = await reader.read();
+    if (step.done) { reader.cancel().catch(() => {}); return videoTrack; }
+    first = step.value;
+    sourceW = first.displayWidth || sourceW;
+    sourceH = first.displayHeight || sourceH;
+  }
+  if (!sourceW || !sourceH) { const [w, h] = SIZES[want.res] || SIZES[1080]; sourceW = w; sourceH = h; }
   let cut = null;
   if (want.mode === 'area' && want.rect) {
-    const k = (settings.width || 1) / want.rect.vw;
+    const k = sourceW / want.rect.vw;
     cut = {x: Math.round(want.rect.x * k), y: Math.round(want.rect.y * k), w: Math.max(2, Math.round(want.rect.w * k)) & ~1, h: Math.max(2, Math.round(want.rect.h * k)) & ~1};
   }
-  const width = cut ? cut.w : settings.width, height = cut ? cut.h : settings.height;
+  const width = cut ? cut.w : sourceW, height = cut ? cut.h : sourceH;
   const canvas = new OffscreenCanvas(width, height), c = canvas.getContext('2d');
   let face = null;
   const camTrack = cam?.getVideoTracks()[0];
   if (camTrack && 'MediaStreamTrackProcessor' in window) {
-    const reader = new MediaStreamTrackProcessor({track: camTrack}).readable.getReader();
-    (async () => { for (;;) { const {value, done} = await reader.read(); if (done) break; face?.close(); face = value; } })().catch(() => {});
+    const camReader = new MediaStreamTrackProcessor({track: camTrack}).readable.getReader();
+    (async () => { for (;;) { const {value, done} = await camReader.read(); if (done) break; face?.close(); face = value; } })().catch(() => {});
   }
   const paintFace = () => {
     if (!face) return;
@@ -189,17 +205,22 @@ async function composed(videoTrack) {
     c.drawImage(face, (sw - s) / 2, (sh - s) / 2, s, s, x, y, d, d); c.restore();
     c.save(); c.lineWidth = Math.max(3, d * .03); c.strokeStyle = '#dff39c'; c.beginPath(); c.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); c.stroke(); c.restore();
   };
-  if ('MediaStreamTrackProcessor' in window && 'MediaStreamTrackGenerator' in window) {
-    const reader = new MediaStreamTrackProcessor({track: videoTrack}).readable.getReader();
+  const paint = frame => {
+    if (cut) c.drawImage(frame, cut.x, cut.y, cut.w, cut.h, 0, 0, width, height);
+    else c.drawImage(frame, 0, 0, width, height);
+    paintFace();
+  };
+  if (modern) {
     const out = new MediaStreamTrackGenerator({kind: 'video'}), writer = out.writable.getWriter();
     drawing = {stop: () => { reader.cancel().catch(() => {}); writer.close().catch(() => {}); face?.close(); }};
     (async () => {
+      let frame = first;
       for (;;) {
-        const {value: frame, done} = await reader.read(); if (done) break;
-        if (cut) c.drawImage(frame, cut.x, cut.y, cut.w, cut.h, 0, 0, width, height); else c.drawImage(frame, 0, 0, width, height);
-        paintFace();
+        paint(frame);
         const next = new VideoFrame(canvas, {timestamp: frame.timestamp}); frame.close();
         await writer.write(next).catch(() => {}); next.close();
+        const step = await reader.read(); if (step.done) break;
+        frame = step.value;
       }
     })().catch(() => {});
     return out;
@@ -208,7 +229,7 @@ async function composed(videoTrack) {
   const video = document.createElement('video'); video.muted = true; video.srcObject = new MediaStream([videoTrack]); await video.play();
   const shown = document.createElement('canvas'); shown.width = width; shown.height = height;
   const sc = shown.getContext('2d'); let alive = true;
-  const loop = () => { if (!alive) return; if (cut) sc.drawImage(video, cut.x, cut.y, cut.w, cut.h, 0, 0, width, height); else sc.drawImage(video, 0, 0, width, height); c.drawImage(shown, 0, 0); requestAnimationFrame(loop); };
+  const loop = () => { if (!alive) return; if (cut) sc.drawImage(video, cut.x, cut.y, cut.w, cut.h, 0, 0, width, height); else sc.drawImage(video, 0, 0, width, height); c.drawImage(shown, 0, 0); paintFace(); requestAnimationFrame(loop); };
   loop(); drawing = {stop: () => { alive = false; }, visibleOnly: true};
   return shown.captureStream(30).getVideoTracks()[0];
 }

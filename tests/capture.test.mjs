@@ -287,6 +287,30 @@ test('윈도우 디스플레이 알림은 발표 중일 때만, 막지 않는 �
   assert.match(body, /Tell\("디스플레이가 바뀌어/);
 });
 
+// 합쳐 담는 화면 크기는 '첫 장' 을 보고 정한다. 트랙에 물어보면(getSettings) 탭 캡처처럼
+// 크기를 모른다고 답하는 경우가 있고, 그때 예전 코드는 OffscreenCanvas 를 만들다 죽어
+// 녹화가 시작조차 되지 않았다(사용자 보고: '이 탭' + 카메라).
+test('합쳐 담을 크기는 첫 장을 보고 정한다', () => {
+  const rec = readFileSync('extension/record.js', 'utf8');
+  const body = rec.slice(rec.indexOf('async function composed('), rec.indexOf('// ── 소리 섞기'));
+  assert.match(body, /sourceW = first\.displayWidth \|\| sourceW/);
+  assert.match(body, /if \(!sourceW \|\| !sourceH\) \{ const \[w, h\] = SIZES/);
+  // 크기를 정한 뒤에 캔버스를 만든다(그 전에 만들면 죽는다).
+  assert.ok(body.indexOf('const canvas = new OffscreenCanvas(width, height)') > body.indexOf('if (!sourceW || !sourceH)'));
+  // 첫 장을 버리지 않고 그려 넣는다.
+  assert.match(body, /let frame = first;/);
+});
+
+// 선택 영역 녹화는 카메라를 쓰지 않는다(사용자 요청). 세 곳에서 막는다.
+test('선택 영역에서는 카메라를 쓰지 않는다', () => {
+  assert.match(readFileSync('extension/record.js', 'utf8'),
+    /camera: ask\.get\('camera'\) === 'true' && ask\.get\('mode'\) !== 'area'/);
+  const panel = readFileSync('extension/panel.js', 'utf8');
+  assert.match(panel, /noCam=recOptions\.mode==='area'/);
+  assert.match(panel, /\$\('rec-cam'\)\.disabled=camOnly\|\|noCam/);
+  assert.match(panel, /if\(mode==='area'\)options\.camera=false/);
+});
+
 // 전체 화면 고르기는 사용자가 누른 그 손길에서만 열린다(빈 목록·취소로 돌아오던 문제).
 test('전체 화면은 단추를 누른 손길로 getDisplayMedia 를 부른다', () => {
   const rec = readFileSync('extension/record.js', 'utf8');
