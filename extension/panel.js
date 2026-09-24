@@ -813,13 +813,16 @@ function showRecMode(){
     const on=tile.dataset.rec===recOptions.mode;
     tile.classList.toggle('selected',on);tile.setAttribute('aria-checked',String(on));
   }
-  const camOnly=recOptions.mode==='camera';
-  $('rec-cam').disabled=camOnly;
+  // 카메라 칸: 카메라만 녹화일 때는 뜻이 없고, 선택 영역에서는 쓰지 않는다(사용자 요청).
+  const camOnly=recOptions.mode==='camera', noCam=recOptions.mode==='area';
+  $('rec-cam').disabled=camOnly||noCam;
+  $('rec-cam-dev').disabled=camOnly||noCam;
+  $('rec-cam').closest('label')?.classList.toggle('off',camOnly||noCam);
   $('rec-note').textContent={
     desktop:'Chrome 이 띄우는 창에서 녹화할 화면(전체 화면·창·탭)을 고릅니다.',
     camera:'카메라 창이 열립니다. 거기서 카메라·마이크를 고르고 녹화합니다.',
     tab:'Chrome 이 띄우는 창에서 이 탭을 고르면 탭 화면과 소리를 녹화합니다.',
-    area:'페이지에서 녹화할 곳을 끌어 고른 뒤, Chrome 창에서 이 탭을 고르세요. 고른 곳만 잘라 담습니다.'
+    area:'페이지에서 녹화할 곳을 끌어 고른 뒤, Chrome 창에서 이 탭을 고르세요. 고른 곳만 잘라 담습니다. (카메라는 쓰지 않습니다.)'
   }[recOptions.mode]||'';
 }
 function checkRecFormat(){
@@ -858,6 +861,8 @@ event('rec-start','click',async()=>{
   }
   if(recOptions.mode==='area')capSay('페이지에서 녹화할 곳을 끌어 고르세요. Esc 로 그만둡니다.');
   const {mode,...options}=recOptions;
+  // 선택 영역은 카메라 없이 녹화한다. 사이드바 설정이 켜져 있어도 보내지 않는다.
+  if(mode==='area')options.camera=false;
   if(capOptions.hideSide){
     chrome.runtime.sendMessage({type:'record-open',mode,options:{...options,hideSide:true}}).catch(()=>{});
     capSay('사이드바를 닫고 녹화를 준비합니다…');

@@ -120,12 +120,13 @@ test('창을 내릴 때는 close 까지 부른다', () => {
   assert.match(swift, /func displayChanged\(\)\{[\s\S]{0,600}place\(on:screenInUse\(\)\)/);
 });
 
-// 녹화 중인 모니터를 가리지 못하면 카메라 창을 띄우지 않는다(확장이 영상 안에 합친다).
-test('모니터를 가리지 못하면 카메라 창을 띄우지 않는다', () => {
+// '화면 전체' 를 담을 때 그 모니터를 가리지 못하면 카메라 창을 띄우지 않는다(확장이 영상
+// 안에 합친다). 탭·창을 담을 때는 모니터가 상관없으니 그냥 띄운다 — 찍는 동안 보여야 한다.
+test('화면 전체에서 모니터를 못 가리면 카메라 창을 띄우지 않는다', () => {
   assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'),
-    /if NSScreen\.screens\.count > 1 && onScreen == nil \{[\s\S]{0,160}return/);
+    /if !recordDisplay\.isEmpty && NSScreen\.screens\.count > 1 && onScreen == nil \{[\s\S]{0,200}return/);
   assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
-    /if\(Screen\.AllScreens\.Length>1&&onScreen==null\)\{[\s\S]{0,160}return;/);
+    /if\(!string\.IsNullOrEmpty\(recordDisplay\)&&Screen\.AllScreens\.Length>1&&onScreen==null\)\{[\s\S]{0,200}return;/);
 });
 
 // 카메라 동그라미: 전체 화면 녹화는 앱이 띄운 동그란 창이 화면에 보이고 녹화에도 담긴다.
@@ -136,8 +137,21 @@ test('카메라 동그라미는 앱이 띄우고, 못 띄우면 영상 안에 �
   assert.doesNotMatch(rec, /bubbleMode|openBubble/);
   assert.match(rec, /async function appCameraUp\(\)/);
   // 앱 창은 '화면 전체' 를 담을 때만 영상에 들어간다. 창·탭을 고르면 영상 안에 합쳐야 한다.
-  assert.match(rec, /cameraOnScreen = want\.camera && want\.mode === 'desktop' && surface === 'monitor'/);
+  // 찍는 동안 내 모습은 어느 방식이든 보여 준다(사용자 요청). 영상에 합치는 것만 갈린다.
+  assert.match(rec, /cameraOnScreen = want\.camera;/);
+  assert.match(rec, /cameraInVideo = want\.camera && !\(appCam && wholeScreen\)/);
+  assert.match(rec, /const wholeScreen = want\.mode === 'desktop' && surface === 'monitor'/);
   assert.match(rec, /getSettings\(\)\.displaySurface/);
+  // 모니터 이름은 '화면 전체' 를 담을 때만 보낸다(그때만 어느 모니터인지가 영상에 영향을 준다).
+  assert.match(rec, /display: wholeScreen \? capturedDisplay : ''/);
+  // 앱은 모니터를 지정받았을 때만(= 화면 전체) 자리를 못 가리면 물러난다.
+  assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'),
+    /if !recordDisplay\.isEmpty && NSScreen\.screens\.count > 1 && onScreen == nil/);
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
+    /if\(!string\.IsNullOrEmpty\(recordDisplay\)&&Screen\.AllScreens\.Length>1&&onScreen==null\)/);
+  // 윈도우: 확장도 같은 카메라를 열 때가 있다(탭·창 녹화). 혼자 쓰기가 막히면 같이 읽기로 다시.
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
+    /MediaCaptureSharingMode\.SharedReadOnly/);
   assert.match(rec, /const video = \(cam \|\| \(want\.mode === 'area' && want\.rect\)\)/);
   // 영상 안 동그라미는 그대로 남아 있어야 한다(물러날 자리다).
   assert.match(rec, /c\.arc\(x \+ d \/ 2, y \+ d \/ 2, d \/ 2, 0, Math\.PI \* 2\); c\.clip\(\)/);
@@ -285,6 +299,30 @@ test('윈도우 디스플레이 알림은 발표 중일 때만, 막지 않는 �
   assert.doesNotMatch(body, /MessageBox\.Show/);
   assert.match(body, /if\(!active\)return;/);
   assert.match(body, /Tell\("디스플레이가 바뀌어/);
+});
+
+// 합쳐 담는 화면 크기는 '첫 장' 을 보고 정한다. 트랙에 물어보면(getSettings) 탭 캡처처럼
+// 크기를 모른다고 답하는 경우가 있고, 그때 예전 코드는 OffscreenCanvas 를 만들다 죽어
+// 녹화가 시작조차 되지 않았다(사용자 보고: '이 탭' + 카메라).
+test('합쳐 담을 크기는 첫 장을 보고 정한다', () => {
+  const rec = readFileSync('extension/record.js', 'utf8');
+  const body = rec.slice(rec.indexOf('async function composed('), rec.indexOf('// ── 소리 섞기'));
+  assert.match(body, /sourceW = first\.displayWidth \|\| sourceW/);
+  assert.match(body, /if \(!sourceW \|\| !sourceH\) \{ const \[w, h\] = SIZES/);
+  // 크기를 정한 뒤에 캔버스를 만든다(그 전에 만들면 죽는다).
+  assert.ok(body.indexOf('const canvas = new OffscreenCanvas(width, height)') > body.indexOf('if (!sourceW || !sourceH)'));
+  // 첫 장을 버리지 않고 그려 넣는다.
+  assert.match(body, /let frame = first;/);
+});
+
+// 선택 영역 녹화는 카메라를 쓰지 않는다(사용자 요청). 세 곳에서 막는다.
+test('선택 영역에서는 카메라를 쓰지 않는다', () => {
+  assert.match(readFileSync('extension/record.js', 'utf8'),
+    /camera: ask\.get\('camera'\) === 'true' && ask\.get\('mode'\) !== 'area'/);
+  const panel = readFileSync('extension/panel.js', 'utf8');
+  assert.match(panel, /noCam=recOptions\.mode==='area'/);
+  assert.match(panel, /\$\('rec-cam'\)\.disabled=camOnly\|\|noCam/);
+  assert.match(panel, /if\(mode==='area'\)options\.camera=false/);
 });
 
 // 전체 화면 고르기는 사용자가 누른 그 손길에서만 열린다(빈 목록·취소로 돌아오던 문제).
