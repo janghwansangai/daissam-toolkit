@@ -285,6 +285,12 @@ function captureNotice(result){
   if(result.truncated)parts.push('페이지가 너무 길어 32,000px 까지만 담았습니다.');
   return parts.join(' ');
 }
+// 녹화를 못 하는 까닭을 사람 말로 바꾼다. Chrome 이 보호하는 페이지가 가장 흔하다.
+function recordWhy(error){
+  if(String(error?.message)!=='CHROME_PAGE')return String(error?.message||error);
+  return '이 페이지는 Chrome 이 보호해서 ‘이 탭’ 이나 ‘선택 영역’ 으로 녹화할 수 없습니다'
+        +'(새 탭·chrome:// 설정·확장 프로그램·웹 스토어). ‘전체 화면’ 으로 녹화하거나 일반 웹페이지로 옮겨 주세요.';
+}
 function tell(title,message){try{chrome.notifications.create('dais-capture-'+Date.now(),{type:'basic',iconUrl:'icons/128.png',title,message:String(message).slice(0,240)})?.catch?.(()=>{});}catch{}}
 // 캡처 한 번. notify 면 결과를 알림으로 알린다(사이드바를 닫고 찍는 경우 알려 줄 곳이 없다).
 // widen 이면 사이드바가 닫혀 페이지가 넓어질 때까지 기다렸다 찍는다.
@@ -484,12 +490,27 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     // 캡처: mode 는 visible·area·full·delay·ocr. after 를 주면 설정 대신 그것을 쓴다(도크는 'both').
     if(m.type==='capture')return runCapture(String(m.mode||'visible'),{after:m.after&&String(m.after),notify:!!m.notify,widen:!!m.widen});
     // 영상 녹화 창. 작은 창 하나가 곧 컨트롤 바다. 선택 영역은 먼저 페이지에서 고른다.
+    // 녹화 전에 '이 탭' 을 찍을 수 있는지만 본다. 사이드바가 닫히기 전에 알려 줘야
+    // 까닭을 보여 줄 수 있다(예전에는 조용히 닫히고 아무 일도 안 일어났다 — 사용자 보고).
+    if(m.type==='record-check'){
+      if(m.mode!=='tab'&&m.mode!=='area')return {ok:true};
+      try{ await targetTab({strict:true}); return {ok:true}; }
+      catch(error){ throw Error(recordWhy(error)); }
+    }
     if(m.type==='record-open'){
       const query=new URLSearchParams();
       for(const [key,value] of Object.entries(m.options||{}))query.set(key,String(value));
       query.set('mode',String(m.mode||'desktop'));
       if(m.mode==='tab'||m.mode==='area'){
-        const tab=await targetTab();
+        let tab;
+        try{ tab=await targetTab({strict:true}); }
+        catch(error){
+          // 사이드바가 이미 닫혔을 수 있다. 알림으로라도 반드시 알린다.
+          const why=recordWhy(error);
+          tell('녹화하지 못했습니다',why);
+          await chrome.storage.local.set({lastCapture:{text:why,at:Date.now()}}).catch(()=>{});
+          throw Error(why);
+        }
         query.set('tab',String(tab.id));
         if(m.mode==='area'){
           const rect=await pickTabArea(tab);
