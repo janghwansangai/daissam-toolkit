@@ -1903,6 +1903,16 @@ namespace BrowserSheriff {
       // 소식이 없으면 스스로 거둔다.
       StopBadgeWatch();
       badgeWatch=new System.Windows.Forms.Timer{Interval=12000};
+      // 녹화가 도는 동안의 기준은 위의 12초 그대로다. 그런데 'show' 를 받은 뒤 첫 'update'
+      // 가 오기까지는 확장이 recorder 알림을 하나도 보내지 않는다(record.js: badge('show')
+      // → appCameraUp() → countdown() → 창 내리기 → recorder.start() → 그때 비로소 tick 이
+      // badge('update') 를 보낸다). 그 공백은 윈도우에서 실측 기준 appCameraUp() 최악 12.4초
+      // (상태 질의 한 번이 프로세스 하나라 12×220ms 가정이 성립하지 않는다) + 카운트다운
+      // 최대 10초 + 0.42초다. 12초로 두면 이 시계가 그 공백 안에서 울어, 녹화가 막 시작되는
+      // 순간 표시기와 카메라 창을 거둬 버린다 — 녹화본에 카메라가 안 담기고 멈출 자리도
+      // 없어진다. 그래서 첫 소식까지만 넉넉히 둔다. 창이 갑자기 사라지는 경우는 record.js 의
+      // pagehide 와 서비스 워커의 windows.onRemoved 가 즉시 처리한다(v0.36.1 의 세 겹).
+      if(action=="show")badgeWatch.Interval=30000;
       badgeWatch.Tick+=delegate{
         StopBadgeWatch();
         if(badge!=null&&!badge.IsDisposed){badge.Close();badge.Dispose();}
