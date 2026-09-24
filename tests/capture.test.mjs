@@ -120,12 +120,13 @@ test('창을 내릴 때는 close 까지 부른다', () => {
   assert.match(swift, /func displayChanged\(\)\{[\s\S]{0,600}place\(on:screenInUse\(\)\)/);
 });
 
-// 녹화 중인 모니터를 가리지 못하면 카메라 창을 띄우지 않는다(확장이 영상 안에 합친다).
-test('모니터를 가리지 못하면 카메라 창을 띄우지 않는다', () => {
+// '화면 전체' 를 담을 때 그 모니터를 가리지 못하면 카메라 창을 띄우지 않는다(확장이 영상
+// 안에 합친다). 탭·창을 담을 때는 모니터가 상관없으니 그냥 띄운다 — 찍는 동안 보여야 한다.
+test('화면 전체에서 모니터를 못 가리면 카메라 창을 띄우지 않는다', () => {
   assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'),
-    /if NSScreen\.screens\.count > 1 && onScreen == nil \{[\s\S]{0,160}return/);
+    /if !recordDisplay\.isEmpty && NSScreen\.screens\.count > 1 && onScreen == nil \{[\s\S]{0,200}return/);
   assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
-    /if\(Screen\.AllScreens\.Length>1&&onScreen==null\)\{[\s\S]{0,160}return;/);
+    /if\(!string\.IsNullOrEmpty\(recordDisplay\)&&Screen\.AllScreens\.Length>1&&onScreen==null\)\{[\s\S]{0,200}return;/);
 });
 
 // 카메라 동그라미: 전체 화면 녹화는 앱이 띄운 동그란 창이 화면에 보이고 녹화에도 담긴다.
@@ -136,8 +137,21 @@ test('카메라 동그라미는 앱이 띄우고, 못 띄우면 영상 안에 �
   assert.doesNotMatch(rec, /bubbleMode|openBubble/);
   assert.match(rec, /async function appCameraUp\(\)/);
   // 앱 창은 '화면 전체' 를 담을 때만 영상에 들어간다. 창·탭을 고르면 영상 안에 합쳐야 한다.
-  assert.match(rec, /cameraOnScreen = want\.camera && want\.mode === 'desktop' && surface === 'monitor'/);
+  // 찍는 동안 내 모습은 어느 방식이든 보여 준다(사용자 요청). 영상에 합치는 것만 갈린다.
+  assert.match(rec, /cameraOnScreen = want\.camera;/);
+  assert.match(rec, /cameraInVideo = want\.camera && !\(appCam && wholeScreen\)/);
+  assert.match(rec, /const wholeScreen = want\.mode === 'desktop' && surface === 'monitor'/);
   assert.match(rec, /getSettings\(\)\.displaySurface/);
+  // 모니터 이름은 '화면 전체' 를 담을 때만 보낸다(그때만 어느 모니터인지가 영상에 영향을 준다).
+  assert.match(rec, /display: wholeScreen \? capturedDisplay : ''/);
+  // 앱은 모니터를 지정받았을 때만(= 화면 전체) 자리를 못 가리면 물러난다.
+  assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'),
+    /if !recordDisplay\.isEmpty && NSScreen\.screens\.count > 1 && onScreen == nil/);
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
+    /if\(!string\.IsNullOrEmpty\(recordDisplay\)&&Screen\.AllScreens\.Length>1&&onScreen==null\)/);
+  // 윈도우: 확장도 같은 카메라를 열 때가 있다(탭·창 녹화). 혼자 쓰기가 막히면 같이 읽기로 다시.
+  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'),
+    /MediaCaptureSharingMode\.SharedReadOnly/);
   assert.match(rec, /const video = \(cam \|\| \(want\.mode === 'area' && want\.rect\)\)/);
   // 영상 안 동그라미는 그대로 남아 있어야 한다(물러날 자리다).
   assert.match(rec, /c\.arc\(x \+ d \/ 2, y \+ d \/ 2, d \/ 2, 0, Math\.PI \* 2\); c\.clip\(\)/);

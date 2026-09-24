@@ -20,12 +20,14 @@ const want = {
   limit: Math.max(0, Number(ask.get('limit')) || 0),
   sound: ask.get('sound') !== 'false'
 };
-// 앱이 동그란 카메라 창을 띄울 상황인지. 화면을 받아 본 뒤에 정해진다 — 그 창은 '화면
-// 전체' 를 담을 때만 영상에 들어가고, 창 하나나 탭을 고르면 그 밖이라 담기지 않는다
-// (사용자 보고: 카메라가 화면에는 보이는데 녹화본에는 없음).
-// 표시기에 보내는 모든 알림에 이 값을 함께 넣어야 한다 — 빠뜨리면 앱이 '카메라 꺼짐' 으로
-// 읽고 띄운 창을 바로 닫는다(v0.33.0 에서 그랬다).
-let cameraOnScreen = false;
+// 카메라는 두 가지가 따로 논다.
+//  · cameraOnScreen: 앱이 화면에 동그란 창을 띄웠나 — **녹화 방식과 상관없이 늘 띄운다.**
+//    찍는 동안 내 모습을 봐야 하기 때문이다(사용자 요청).
+//  · cameraInVideo: 영상 안에 동그라미를 합쳐 넣어야 하나 — '화면 전체' 를 담을 때는 앱
+//    창이 그대로 찍히니 합치지 않고, 탭·창을 담을 때는 그 창이 찍히는 자리 밖이라 합친다.
+// 표시기에 보내는 모든 알림에 cameraView 를 함께 넣어야 한다 — 빠뜨리면 앱이 '카메라 꺼짐'
+// 으로 읽고 띄운 창을 바로 닫는다(v0.33.0 에서 그랬다).
+let cameraOnScreen = false, cameraInVideo = false;
 const wantsCameraView = () => cameraOnScreen;
 // 지금 녹화 중인 화면이 어느 모니터인지 앱에 알려 줄 글. "<크롬이 부르는 이름>|<가로>x<세로>".
 // 앱은 이것으로 그 모니터를 찾아 카메라 창과 표시기를 거기에 띄운다.
@@ -285,7 +287,8 @@ async function start(fromClick) {
     screen = await getScreen();
     // 무엇을 골랐나: monitor(화면 전체) · window(창 하나) · browser(탭).
     const surface = screen.getVideoTracks()[0].getSettings().displaySurface || '';
-    cameraOnScreen = want.camera && want.mode === 'desktop' && surface === 'monitor';
+    const wholeScreen = want.mode === 'desktop' && surface === 'monitor';
+    cameraOnScreen = want.camera;            // 찍는 동안 내 모습은 어느 방식이든 보여 준다
     if (want.mode === 'desktop') await backToBar();
     if (want.mic) {
       try { mic = await navigator.mediaDevices.getUserMedia({audio: {...(want.micId ? {deviceId: {exact: want.micId}} : {}), echoCancellation: true, noiseSuppression: true}}); }
@@ -294,11 +297,16 @@ async function start(fromClick) {
     // 표시기(와 전체 화면이면 동그란 카메라 창)를 먼저 띄운다. 무엇을 합쳐 담을지가 여기서 갈린다.
     // camera 는 표시기에 '카메라' 라고 적기 위한 것이고, cameraView 는 앱이 동그란 창을
     // 띄울지다. 탭·선택 영역 녹화에서는 그 창이 담기지 않으므로 영상 안에 합쳐 넣는다.
+    // display 는 '화면 전체' 를 담을 때만 보낸다. 그때만 카메라 창이 그 모니터에 있어야
+    // 영상에 담기기 때문이다. 탭·창을 담을 때는 어디 떠 있어도 되므로 비워 보낸다.
     const onBadge = await badge('show', {time: '00:00', camera: want.camera,
-      cameraView: wantsCameraView(), cameraName: want.cameraName, display: capturedDisplay});
+      cameraView: cameraOnScreen, cameraName: want.cameraName,
+      display: wholeScreen ? capturedDisplay : ''});
     const appCam = onBadge && cameraOnScreen ? await appCameraUp() : false;
-    if (want.camera && !appCam && cameraOnScreen) cameraOnScreen = false;   // 못 띄웠으니 영상 안에 합친다
-    if (want.camera && !appCam) {
+    if (!appCam) cameraOnScreen = false;                     // 앱이 못 띄웠다
+    // 화면 전체를 담는데 앱 창이 떠 있으면 그것이 그대로 찍힌다 — 그때만 합치지 않는다.
+    cameraInVideo = want.camera && !(appCam && wholeScreen);
+    if (cameraInVideo) {
       try { cam = await navigator.mediaDevices.getUserMedia({video: {...(want.cameraId ? {deviceId: {exact: want.cameraId}} : {}), width: {ideal: 640}, height: {ideal: 640}}}); }
       catch { say('카메라를 쓸 수 없어 화면만 녹화합니다.'); }
     }

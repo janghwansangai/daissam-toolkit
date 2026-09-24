@@ -1,6 +1,6 @@
 # 윈도우 작업 인수인계 — 맥 Claude Code → 윈도우 Claude Code
 
-갱신: 2026-09-24 · 기준 버전 **v0.36.4** · 작성자: 맥 쪽 세션
+갱신: 2026-09-24 · 기준 버전 **v0.36.5** · 작성자: 맥 쪽 세션
 읽는 순서: `AGENTS.md` → `docs/ai/PROJECT.md` → `docs/ai/HANDOFF.md` → **이 문서** → (필요할 때) `docs/ai/VALIDATION.md`
 새 컴퓨터에서 처음 시작한다면 먼저 **[WINDOWS_START.md](WINDOWS_START.md)**(설치·시작 명령서)를 읽는다. 규칙과 계약은 이 문서가 기준이다.
 

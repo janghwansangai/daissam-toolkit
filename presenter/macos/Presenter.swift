@@ -813,11 +813,13 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
     }
     func openCamera(_ name: String){
         guard camera==nil else { return }
-        // 모니터가 여러 대인데 '녹화 중인 화면' 을 가려내지 못했으면 띄우지 않는다. 엉뚱한
-        // 모니터에 뜨면 녹화 영상에 카메라가 하나도 남지 않는다. 안 띄우면 확장이 영상 안에
-        // 동그랗게 합쳐 넣으므로, 어느 경우든 녹화본에는 카메라가 남는다.
+        // 확장이 '화면 전체를 담는다' 고 알려 줬는데(recordDisplay 가 있음) 그 모니터를
+        // 가려내지 못했으면 띄우지 않는다 — 엉뚱한 모니터에 뜨면 녹화 영상에 카메라가
+        // 남지 않는다. 안 띄우면 확장이 영상 안에 합쳐 넣는다.
+        // 탭·창을 담을 때는 recordDisplay 가 비어 있다. 그때는 어디 떠 있어도 되므로 띄운다
+        // (찍는 동안 내 모습을 보는 것이 목적이고, 영상에는 확장이 따로 합쳐 넣는다).
         let onScreen=screenForCapture(recordDisplay)
-        if NSScreen.screens.count > 1 && onScreen == nil {
+        if !recordDisplay.isEmpty && NSScreen.screens.count > 1 && onScreen == nil {
             tell("녹화 중인 모니터를 가리지 못해 카메라를 영상 안에 담습니다")
             return
         }

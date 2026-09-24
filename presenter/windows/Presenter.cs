@@ -1294,7 +1294,14 @@ namespace BrowserSheriff {
         settings.VideoDeviceId=chosen.Id;
         settings.StreamingCaptureMode=Windows.Media.Capture.StreamingCaptureMode.Video;
         settings.MemoryPreference=Windows.Media.Capture.MediaCaptureMemoryPreference.Cpu;
-        await capture.InitializeAsync(settings);
+        try{ await capture.InitializeAsync(settings); }
+        catch{
+          // 탭·창을 녹화할 때는 확장(Chrome)도 같은 카메라를 열어 영상 안에 합친다. 윈도우는
+          // 기본이 '혼자 쓰기' 라 그때 실패할 수 있다. 같이 읽기로 한 번 더 해 본다.
+          capture=new Windows.Media.Capture.MediaCapture();
+          settings.SharingMode=Windows.Media.Capture.MediaCaptureSharingMode.SharedReadOnly;
+          await capture.InitializeAsync(settings);
+        }
         Windows.Media.Capture.Frames.MediaFrameSource source=null;
         foreach(var pair in capture.FrameSources)
           if(pair.Value.Info.SourceKind==Windows.Media.Capture.Frames.MediaFrameSourceKind.Color){source=pair.Value;break;}
@@ -1938,10 +1945,11 @@ namespace BrowserSheriff {
     }
     void OpenCamera(string name){
       if(cameraView!=null&&!cameraView.IsDisposed)return;
-      // 모니터가 여러 대인데 '녹화 중인 화면' 을 가려내지 못했으면 띄우지 않는다. 엉뚱한
-      // 모니터에 뜨면 녹화 영상에 카메라가 남지 않는다. 안 띄우면 확장이 영상 안에 합친다.
+      // 확장이 '화면 전체를 담는다' 고 알려 줬는데(recordDisplay 가 있음) 그 모니터를 못
+      // 가렸으면 띄우지 않는다(엉뚱한 모니터에 뜨면 영상에 카메라가 안 남는다).
+      // 탭·창을 담을 때는 recordDisplay 가 비어 있다 — 그때는 어디 떠 있어도 되므로 띄운다.
       Screen onScreen=ScreenForCapture(recordDisplay);
-      if(Screen.AllScreens.Length>1&&onScreen==null){
+      if(!string.IsNullOrEmpty(recordDisplay)&&Screen.AllScreens.Length>1&&onScreen==null){
         Tell("녹화 중인 모니터를 가리지 못해 카메라를 영상 안에 담습니다");
         return;
       }
