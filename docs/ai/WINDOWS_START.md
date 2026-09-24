@@ -62,12 +62,18 @@ ver
 
 ## 2. 저장소 받기와 브랜치 잡기
 
+**이 저장소는 비공개다.** 로그인 없이는 clone 이 안 된다. GitHub CLI 로 먼저 로그인한다
+(브라우저 창이 뜨면 사용자가 직접 승인해야 한다 — 대신 누르지 말 것).
+
 ```bat
-git clone https://github.com/janghwansangai/daissam-toolkit.git
+gh auth login
+gh repo clone janghwansangai/daissam-toolkit
 cd daissam-toolkit
 git checkout windows
 git pull origin main
 ```
+
+`gh` 가 없으면 1장으로 돌아가 설치를 먼저 부탁한다(`winget install GitHub.cli`).
 
 - `main` = 맥 세션 것, `windows` = 네 것. **`main` 으로 직접 push 하지 않는다.**
 - **작업을 시작할 때마다 `git pull origin main` 을 먼저 한다.** 맥 세션이 확장과 맥 앱을 계속 고치고 있다.
@@ -125,7 +131,7 @@ Check.cmd
   (윈도우 세션이 예전에 `exStyle=0x00010028 → 0x00090008` 을 붙여 보낸 것이 좋은 예다.)
 - 한 번에 한 가지만 고치고, 고칠 때마다 다시 돌려 본다.
 - 큰 리팩터링 금지. 지금은 **안 되는 것을 되게** 만드는 일만 한다.
-- `npm test` 는 윈도우에서도 돌아간다(`npm test` → 78개). 앱 코드를 고쳤으면 돌려 보고 깨진 것이 없는지 본다.
+- `npm test` 는 윈도우에서도 돌아간다(지금 79개). 앱 코드를 고쳤으면 돌려 보고 깨진 것이 없는지 본다.
 
 ## 6. 절대 하지 말 것
 
