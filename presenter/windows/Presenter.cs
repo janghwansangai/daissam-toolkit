@@ -30,6 +30,16 @@ namespace BrowserSheriff {
     // 창에 붙는 진짜 전역 단축키(RegisterHotKey)로 따로 등록한다.
     // 이 창을 화면 녹화·공유에서 빼 준다(Windows 10 2004+). 녹화 표시기에 쓴다.
     [DllImport("gdi32.dll")] public static extern IntPtr CreateRoundRectRgn(int left,int top,int right,int bottom,int wide,int tall);
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr handle);
+    // Region.FromHrgn 은 GDI 영역을 '복사' 해 간다. 원본 HRGN 은 부른 쪽이 지워야 하는데 세 곳
+    // 에서 지우지 않아 둥근 창을 만들 때마다 GDI 개체가 하나씩 남았다(윈도우 세션이 PR 에서
+    // 지적 · 맥 세션 요청으로 정리, v0.39.3). 만들기와 지우기를 한자리에 묶어 둔다.
+    public static Region RoundRegion(int wide,int tall,int roundWide,int roundTall){
+      IntPtr hrgn=CreateRoundRectRgn(0,0,wide,tall,roundWide,roundTall);
+      if(hrgn==IntPtr.Zero)return null;
+      try{return Region.FromHrgn(hrgn);}
+      finally{DeleteObject(hrgn);}
+    }
     [DllImport("user32.dll")] public static extern bool SetWindowDisplayAffinity(IntPtr window,uint affinity);
     public const uint ExcludeFromCapture=0x00000011;   // WDA_EXCLUDEFROMCAPTURE
     [DllImport("user32.dll")] public static extern bool ReleaseCapture();
@@ -1261,7 +1271,7 @@ namespace BrowserSheriff {
     // 미리 만들어 두므로, 생성자에 있던 것을 이 자리로 옮겼다 — 그 길로도 모양이 살아 있게.
     protected override void OnHandleCreated(EventArgs e){
       base.OnHandleCreated(e);
-      Region=System.Drawing.Region.FromHrgn(Native.CreateRoundRectRgn(0,0,Width+1,Height+1,Width,Height));
+      Region=Native.RoundRegion(Width+1,Height+1,Width,Height);
     }
     protected override bool ShowWithoutActivation{get{return true;}}
     void Grab(object sender,MouseEventArgs e){
@@ -1385,9 +1395,9 @@ namespace BrowserSheriff {
     public BadgeForm(){
       FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;
       Size=new Size(268,46);BackColor=Color.FromArgb(15,41,33);
-      Region=System.Drawing.Region.FromHrgn(Native.CreateRoundRectRgn(0,0,Width,Height,Height,Height));
+      Region=Native.RoundRegion(Width,Height,Height,Height);
       dot.SetBounds(14,17,11,11);dot.BackColor=Color.FromArgb(255,90,74);
-      dot.Region=System.Drawing.Region.FromHrgn(Native.CreateRoundRectRgn(0,0,11,11,11,11));
+      dot.Region=Native.RoundRegion(11,11,11,11);
       clock.SetBounds(32,12,64,20);clock.ForeColor=Color.White;clock.Font=new Font("Consolas",13,FontStyle.Bold);clock.Text="00:00";
       note.SetBounds(32,29,100,13);note.ForeColor=Color.FromArgb(170,190,175);note.Font=new Font("Malgun Gothic",7.5f);note.Text="녹화 중";
       int at=134;
@@ -1596,7 +1606,10 @@ namespace BrowserSheriff {
       return (info==null?"":info.FileVersion+" "+info.ProductVersion);
     }
     RegisteredWaitHandle commandWait;
+    // 처리되지 않은 예외가 났을 때 되돌릴 것을 찾기 위한 자리(Program.Guard 가 쓴다).
+    public static Presenter Live;
     public Presenter(EventWaitHandle activation,EventWaitHandle command,EventWaitHandle recorder,bool startRequested,bool quiet){
+      Live=this;
       tray=new NotifyIcon{Icon=SystemIcons.Information,Text="다있쌤 · 발표 v"+(Presenter.Ver),Visible=true};
       ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("발표 시작",null,delegate{Start();});menu.Items.Add("발표 종료 · 원래 크기",null,delegate{Stop();});menu.Items.Add("집중 모드 켜기 · 끄기",null,delegate{ToggleFocus();});menu.Items.Add(new ToolStripSeparator());menu.Items.Add("화면 조각 잘라 붙이기",null,delegate{BeginSnip();});menu.Items.Add("화면 조각 저장하기 · 복사",null,delegate{BeginSnip(true);});menu.Items.Add("클립보드 붙이기",null,delegate{PinClipboard();});menu.Items.Add("녹화 카메라 창 미리 보기",null,delegate{PreviewCamera();});menu.Items.Add("클릭 통과 켜기 · 끄기",null,delegate{ThroughPins();});menu.Items.Add("클릭 통과 모두 해제",null,delegate{UnlockPins();});menu.Items.Add("핀 모두 닫기",null,delegate{ClearPins();});menu.Items.Add(new ToolStripSeparator());menu.Items.Add("사용 방법",null,delegate{ShowHelp();});menu.Items.Add("앱 종료",null,delegate{ExitThread();});tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowHelp();};
       combos=Keys2.Read(StoredKeys());
@@ -1610,6 +1623,16 @@ namespace BrowserSheriff {
       // 사이드바가 우리를 띄운 것이라면 명령이 이미 적혀 있다. 이벤트를 놓쳤어도 집어 간다.
       if(quiet)help.BeginInvoke((Action)TakeCommand);
       if(startRequested)help.BeginInvoke((Action)(()=>{Start();if(active)help.Hide();}));
+    }
+    // 처리되지 않은 예외가 났을 때 화면을 사람이 쓸 수 있는 상태로 되돌린다. 확대된 채
+    // 커서가 숨겨져 있으면 컴퓨터를 아예 못 쓰므로 그것부터다. 대화상자는 띄우지 않는다.
+    public void Rescue(){
+      Dispatch(delegate{
+        try{Stop();}catch{}                       // 배율 1배 · 커서 되살리기 · 포인터/집중 창 닫기
+        try{StopBadgeWatch();}catch{}
+        try{if(badge!=null&&!badge.IsDisposed){badge.Close();badge.Dispose();}badge=null;}catch{}
+        try{CloseCamera();}catch{}
+      });
     }
     void Dispatch(Action action){
       if(help==null||help.IsDisposed||exiting)return;
@@ -2205,7 +2228,18 @@ namespace BrowserSheriff {
   // tray app: the process watches the clipboard for as long as the extension keeps the port open.
   static class NativeHost {
     public const string HostName="app.browsersheriff.presenter";
-    public const string ExtensionID="ehgodopakibamgeopmelemjmjdjhbdgm";
+    // 확장 ID 는 두 가지다 — 개발자 모드로 올린 판과 크롬 웹 스토어(비공개) 판. 둘 다 같은
+    // 도우미를 쓴다(v0.38.0, 맥의 NativeHost.extensionIDs 와 같은 일). 식별자는 계약이므로
+    // 값을 바꾸지 말 것 — 바꾸면 이미 깔린 확장이 앱을 찾지 못한다.
+    public const string ExtensionID="ehgodopakibamgeopmelemjmjdjhbdgm";        // 개발자 모드 판
+    public const string StoreExtensionID="cgefngalkalghipmhijniclmlpimpmhf";   // 크롬 웹 스토어(비공개) 판
+    public static readonly string[] ExtensionIDs=new[]{ExtensionID,StoreExtensionID};
+    // native-host.json 의 allowed_origins 에 넣을 주소들.
+    public static string[] Origins(){
+      string[] list=new string[ExtensionIDs.Length];
+      for(int i=0;i<ExtensionIDs.Length;i++)list[i]="chrome-extension://"+ExtensionIDs[i]+"/";
+      return list;
+    }
     const string Prefix="다있쌤-캡처-";
     const string OldPrefix="보완관-캡처-";        // 이름을 바꾸기 전 파일
     static Stream output;
@@ -2216,10 +2250,22 @@ namespace BrowserSheriff {
     static string Desktop {get{return Presenter.DesktopPath;}}
     static string Shots {get{return Presenter.ShotsPath;}}
 
+    // 확장이 포트를 닫으면 우리가 쓰는 통로의 읽는 쪽이 사라진다. 그 뒤에 쓰면 IOException 이다.
+    // 맥에서는 바로 이 자리에서 실제로 네 번 죽었다(v0.36.3~0.37.0 — 녹화가 끝나 포트가 닫히는
+    // 순간 늦게 도착한 소식에 답하다가 SIGABRT). 윈도우는 부르는 곳이 모두 try 안이라 지금
+    // 알려진 충돌은 없지만, 새 호출부가 생겨도 안전하도록 여기서 막는다. 한 번 막히면 더
+    // 쓰지 않는다 — 읽을 사람이 이미 없다.
+    static bool pipeGone=false;
     static void Send(object value){
+      if(pipeGone||output==null)return;
       byte[] body=JsonSerializer.SerializeToUtf8Bytes(value);
       byte[] header=BitConverter.GetBytes(body.Length);
-      lock(writeLock){output.Write(header,0,4);output.Write(body,0,body.Length);output.Flush();}
+      try{
+        lock(writeLock){output.Write(header,0,4);output.Write(body,0,body.Length);output.Flush();}
+      }
+      catch(IOException){pipeGone=true;}
+      catch(ObjectDisposedException){pipeGone=true;}
+      catch(NotSupportedException){pipeGone=true;}
     }
     static string Thumb(Image image){
       double factor=Math.Min(1.0,240.0/Math.Max(image.Width,image.Height));
@@ -2438,8 +2484,17 @@ namespace BrowserSheriff {
       // 명령을 먼저 적어 둔다. 가상 머신에서는 앱이 뜨는 데 10초가 넘게 걸리기도 하는데,
       // 그때 명령을 버리면 도크가 죽은 것처럼 보인다. 앱은 시작하면서 갓 적힌 명령을 집어 간다.
       payload["at"]=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
-      try{File.WriteAllText(Presenter.CommandFile,JsonSerializer.Serialize(payload),Encoding.UTF8);}
-      catch{Send(new{kind="presenter",ok=false,message="명령을 전달하지 못했습니다."});return;}
+      // 앱은 같은 파일을 ReadAllText 로 읽고 지운다. 그 짧은 사이에 쓰면 공유 위반이 난다.
+      // 확장이 통로 하나를 오래 열어 쓰게 된 뒤로 명령이 지체 없이 잇달아 와서(실측: 12건이
+      // 70ms 안에) 실제로 부딪혔다 — 한 건이 '명령을 전달하지 못했습니다' 로 돌아왔다.
+      // 짧게 다시 시도한다. 최악 12×15ms=180ms 이고, 보통은 첫 번째에 끝난다.
+      bool wrote=false;
+      for(int attempt=0;attempt<12&&!wrote;attempt++){
+        try{File.WriteAllText(Presenter.CommandFile,JsonSerializer.Serialize(payload),Encoding.UTF8);wrote=true;}
+        catch(IOException){Thread.Sleep(15);}
+        catch(UnauthorizedAccessException){Thread.Sleep(15);}
+      }
+      if(!wrote){Send(new{kind="presenter",ok=false,message="명령을 전달하지 못했습니다."});return;}
       bool launched=false;
       if(!Alive()){
         try{
@@ -2463,6 +2518,10 @@ namespace BrowserSheriff {
       // 조절값(어둡기·흐림·고리 색·고리 크기)은 끌 때마다 input 마다 한 번씩 오고, 그 한 번마다
       // 이 프로세스가 새로 뜨므로 그 400ms 가 그대로 손에 느껴지는 지연이 되었다. 이제 앱이
       // 상태를 다시 쓰는 즉시 답하고 400ms 는 한도로만 쓴다(못 쓰면 예전과 같이 400ms 기다린다).
+      // 조절값만 온 메시지(action 이 없다)는 앱이 상태 파일을 다시 쓰지 않는다 — 그래서 아래
+      // 기다림이 매번 400ms 한도를 다 쓴다(실측: 한 건에 762ms 중 400ms 가 이것이었다).
+      // 사이드바도 이 답의 내용을 쓰지 않으므로 곧바로 답한다(맥도 v0.37.0 에서 같게 고쳤다).
+      if(string.IsNullOrEmpty(action)){Reply(launched);return;}
       for(int waited=0;waited<20&&StateStamp()==before;waited++)Thread.Sleep(20);
       Reply(launched);
     }
@@ -2501,23 +2560,30 @@ namespace BrowserSheriff {
     }
     public static void Run(string[] args){
       bool trusted=false;
-      foreach(string argument in args)if(argument.StartsWith("chrome-extension://"+ExtensionID,StringComparison.Ordinal))trusted=true;
+      // 확장 ID 는 32글자 고정이라 접두사가 맞으면 사실상 같은 ID 다. 둘 중 하나면 통과한다.
+      foreach(string argument in args)
+        foreach(string id in ExtensionIDs)
+          if(argument.StartsWith("chrome-extension://"+id,StringComparison.Ordinal))trusted=true;
       if(!trusted)return;
       output=Console.OpenStandardOutput();
       Stream input=Console.OpenStandardInput();
       lastSequence=Native.GetClipboardSequenceNumber();
       ConcurrentQueue<string> inbox=new ConcurrentQueue<string>();
       bool closed=false;
+      // 읽기 실이 메시지를 넣으면 곧바로 깨운다. 예전에는 아래 루프가 무조건 300ms 를 자고
+      // 일어나 큐를 봤다 — 확장이 통로 하나를 오래 열어 쓰게 된 v0.37.0 부터는 그 300ms 가
+      // 그대로 한 건당 지연이 되었다(실측: 조절값 한 건 평균 295ms, 최대 313ms).
+      AutoResetEvent nudge=new AutoResetEvent(false);
       Thread reader=new Thread(delegate(){
-        try{while(true){string message=ReadMessage(input);if(message==null)break;inbox.Enqueue(message);}}catch{}
-        closed=true;
+        try{while(true){string message=ReadMessage(input);if(message==null)break;inbox.Enqueue(message);nudge.Set();}}catch{}
+        closed=true;nudge.Set();
       });
       reader.IsBackground=true;reader.Start();
       // chrome.runtime.sendNativeMessage 는 메시지를 쓰자마자 stdin 을 닫는다. 예전에는
       // while(!closed) 가 그 순간 바로 빠져나가, 방금 큐에 들어온 명령을 한 번도 처리하지
       // 않고 프로세스가 끝났다. 300ms 를 자고 깨면 늘 닫힌 뒤였으므로 사이드바의 발표·핀
       // 명령은 Windows 에서 100% 버려지고 있었다. 반드시 큐를 비우고 나서 끝낸다.
-      DateTime leaveAt=DateTime.MaxValue;
+      DateTime leaveAt=DateTime.MaxValue,nextPoll=DateTime.UtcNow;
       while(true){
         string raw;
         while(inbox.TryDequeue(out raw))Handle(raw);
@@ -2529,9 +2595,15 @@ namespace BrowserSheriff {
           if(leaveAt==DateTime.MaxValue)leaveAt=DateTime.UtcNow.AddMilliseconds(250);
           if(inbox.IsEmpty&&DateTime.UtcNow>=leaveAt)break;
         }
-        if(collecting)Poll();
-        PollRecorder();
-        Thread.Sleep(closed?50:300);
+        // 클립보드 감시와 표시기 단추 집기는 300ms 주기면 충분하다. 메시지 때문에 일찍
+        // 깨어났다고 이것들까지 매번 돌리면 공연히 CPU 만 쓴다 — 주기를 따로 지킨다.
+        if(DateTime.UtcNow>=nextPoll){
+          if(collecting)Poll();
+          PollRecorder();
+          nextPoll=DateTime.UtcNow.AddMilliseconds(300);
+        }
+        // 메시지가 들어오면 곧바로, 아니면 300ms 뒤에 깨어난다.
+        nudge.WaitOne(closed?50:300);
       }
     }
   }
@@ -2604,8 +2676,13 @@ namespace BrowserSheriff {
 
       if(hasManifest){
         string text="";try{text=File.ReadAllText(manifestPath);}catch{}
-        bool idOk=text.Contains(NativeHost.ExtensionID);
-        Line(r,"확장 번호 일치",idOk,idOk?NativeHost.ExtensionID:"확장 번호가 다릅니다. Install.cmd 를 다시 실행하세요.");
+        // 개발자 모드 판과 웹 스토어 판 두 ID 가 모두 등록되어 있어야 한다(v0.38.0).
+        bool idOk=true;string missing="";
+        foreach(string id in NativeHost.ExtensionIDs)
+          if(!text.Contains(id)){idOk=false;missing+=(missing.Length>0?", ":"")+id;}
+        Line(r,"확장 번호 일치",idOk,
+          idOk?"개발자 모드 판과 웹 스토어 판 둘 다 등록됨\r\n           "+string.Join("\r\n           ",NativeHost.ExtensionIDs)
+              :"빠진 확장 번호: "+missing+"\r\n           Install.cmd 를 다시 실행하세요.");
       }
 
       bool alive=false;
@@ -2649,6 +2726,19 @@ namespace BrowserSheriff {
       try{File.WriteAllText(outPath,r.ToString(),Encoding.UTF8);r.AppendLine();r.AppendLine("이 내용을 바탕화면 ‘다있쌤-점검.txt’ 에도 저장했습니다.");}catch{}
       MessageBox.Show(r.ToString(),"발표 도우미 점검");
     }
+    // 처리되지 않은 예외가 나도 대화상자를 띄우지 않는다. 화면을 사람이 쓸 수 있는 상태로
+    // 되돌리고 까닭은 파일로만 남긴다(%LOCALAPPDATA%\BrowserSheriff\error.log).
+    static void Guard(Exception why){
+      // 프로세스가 곧 끝나는 경우(AppDomain)에는 UI 실로 넘길 틈이 없다. 배율과 커서는 여기서 직접.
+      try{Native.MagSetFullscreenTransform(1,0,0);}catch{}
+      try{Native.MagShowSystemCursor(true);}catch{}
+      try{if(Presenter.Live!=null)Presenter.Live.Rescue();}catch{}
+      try{
+        File.AppendAllText(Path.Combine(Presenter.Box,"error.log"),
+          DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss",CultureInfo.InvariantCulture)+"  v"+Presenter.Ver+"\r\n"
+          +(why==null?"(알 수 없는 예외)":why.ToString())+"\r\n\r\n",Encoding.UTF8);
+      }catch{}
+    }
     [STAThread] public static void Main(string[] args){
       if(args.Length>0&&args[0].StartsWith("chrome-extension://",StringComparison.Ordinal)){NativeHost.Run(args);return;}
       // 어디서 막히는지 한 번에 알려 준다. VMware 같은 가상 화면에서는 확대 API 자체가
@@ -2667,7 +2757,7 @@ namespace BrowserSheriff {
         string manifestPath=Path.Combine(dir,"native-host.json");
         File.WriteAllText(manifestPath,JsonSerializer.Serialize(new{
           name=NativeHost.HostName,description="다있쌤 클립보드 도우미",path=target,type="stdio",
-          allowed_origins=new[]{"chrome-extension://"+NativeHost.ExtensionID+"/"}}));
+          allowed_origins=NativeHost.Origins()}));
         using(RegistryKey key=Registry.CurrentUser.CreateSubKey(@"Software\Google\Chrome\NativeMessagingHosts\"+NativeHost.HostName)){key.SetValue("",manifestPath);}
         MessageBox.Show("설치했습니다 — 버전 "+Presenter.Ver+"\r\n\r\n"
           +"Chrome 을 다시 시작한 뒤 확장의 발표 탭에서 쓸 수 있습니다.\r\n"
@@ -2690,7 +2780,13 @@ namespace BrowserSheriff {
         using(EventWaitHandle activation=new EventWaitHandle(false,EventResetMode.AutoReset,"Local\\BrowserSheriffPresenterActivate"))
         using(EventWaitHandle command=new EventWaitHandle(false,EventResetMode.AutoReset,Presenter.CommandEvent))
         using(EventWaitHandle recorder=new EventWaitHandle(false,EventResetMode.AutoReset,Presenter.RecorderEvent)){
-          Native.SetProcessDpiAwarenessContext(new IntPtr(-4));Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new Presenter(activation,command,recorder,startRequested,quiet));
+          Native.SetProcessDpiAwarenessContext(new IntPtr(-4));Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+          // WinForms 는 처리되지 않은 예외에 '처리되지 않은 예외' 대화상자를 띄운다. 발표·집중·핀
+          // 중에 그 창이 뜨면 화면이 확대된 채 멈춰 사람이 빠져나오지 못한다(맥 세션 요청, v0.39.3).
+          Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+          Application.ThreadException+=delegate(object who,ThreadExceptionEventArgs e){Guard(e.Exception);};
+          AppDomain.CurrentDomain.UnhandledException+=delegate(object who,UnhandledExceptionEventArgs e){Guard(e.ExceptionObject as Exception);};
+          Application.Run(new Presenter(activation,command,recorder,startRequested,quiet));
         }
       }
     }
