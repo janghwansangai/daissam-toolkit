@@ -488,3 +488,16 @@ test('도크 단추 안내는 한 줄에 들어가게 짧다(15자 이하)', () 
   const long = tips.filter(tip => [...tip].length > 15);
   assert.deepEqual(long, [], `너무 긴 안내: ${long.join(' / ')}`);
 });
+
+// 사이드바 도크 위의 안내 줄도 한 줄이어야 한다(사용자 보고: 캡처 단추 안내가 두 줄로 넘어감).
+// 안내는 짧게(단축키 포함 22자 이하), 그래도 좁은 사이드바에서는 줄을 바꾸지 않고 말줄임표로.
+test('사이드바 도크 안내는 짧고 한 줄로 보인다', () => {
+  const html = readFileSync('extension/panel.html', 'utf8');
+  const bar = html.slice(html.indexOf('class="dockbar"'), html.indexOf('</div></div></div>', html.indexOf('class="dockbar"')) + 200);
+  const tips = [...bar.matchAll(/data-tip="([^"]*)"/g)].map(match => match[1]);
+  assert.ok(tips.length >= 10, '사이드바 도크 안내를 찾았다');
+  const long = tips.filter(tip => [...tip].length > 22);
+  assert.deepEqual(long, [], `너무 긴 안내: ${long.join(' / ')}`);
+  const css = readFileSync('extension/panel.css', 'utf8');
+  assert.match(css, /\.dock-tip\{[^}]*white-space:nowrap[^}]*text-overflow:ellipsis/, '좁아도 줄을 바꾸지 않는다');
+});

@@ -48,7 +48,7 @@
 .dockbtn:hover{background:rgba(255,255,255,.24)}
 .dockbtn.on{background:var(--lime);color:var(--ink);font-weight:700}
 
-.dock-tip{font-size:0.7143rem;color:#7d8877;text-align:center;padding:2px 0 5px;min-height:18px;line-height:1.5}
+.dock-tip{font-size:0.7143rem;color:#7d8877;text-align:center;padding:2px 0 5px;min-height:18px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 단축키 줄에서 바로 켜고 끄기 */
 .shortcut{gap:7px}
 .shortcut.info{opacity:.75}
