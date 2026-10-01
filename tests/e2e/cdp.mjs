@@ -18,11 +18,11 @@ function findChrome() {
 export const CHROME = findChrome();
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 export class Chrome {
-  constructor({ext, profile, port, downloads}) { Object.assign(this, {ext, profile, port, downloads}); this.n = 0; this.pending = new Map(); this.events = []; }
+  constructor({ext, profile, port, downloads, args = []}) { Object.assign(this, {ext, profile, port, downloads, args}); this.n = 0; this.pending = new Map(); this.events = []; }
   async start() {
     fs.mkdirSync(this.profile, {recursive: true}); fs.mkdirSync(this.downloads, {recursive: true});
     this.proc = spawn(CHROME, [`--user-data-dir=${this.profile}`, `--remote-debugging-port=${this.port}`, `--load-extension=${this.ext}`, `--disable-extensions-except=${this.ext}`,
-      '--no-first-run', '--no-default-browser-check', '--headless=new', '--disable-features=DisableLoadExtensionCommandLineSwitch', 'about:blank'], {stdio: 'ignore'});
+      '--no-first-run', '--no-default-browser-check', '--headless=new', '--disable-features=DisableLoadExtensionCommandLineSwitch', ...this.args, 'about:blank'], {stdio: 'ignore'});
     for (let i = 0; i < 150; i++) {
       try { this.wsUrl = (await (await fetch(`http://127.0.0.1:${this.port}/json/version`)).json()).webSocketDebuggerUrl; break; } catch { await sleep(200); }
     }

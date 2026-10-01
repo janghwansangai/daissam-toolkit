@@ -30,7 +30,7 @@ export function createChrome(seed={}) {
           postMessage:message=>port.sent.push(message),disconnect:()=>closed.emit()};
         nativePorts.push(port);return port;
       }},
-    alarms:{create:async(n,a)=>alarmNames.set(n,a),clear:async n=>alarmNames.delete(n),
+    alarms:{create:async(n,a)=>alarmNames.set(n,a),clear:async n=>alarmNames.delete(n),get:async n=>alarmNames.has(n)?{name:n,...(alarmNames.get(n)||{})}:undefined,
       getAll:async()=>[...alarmNames.entries()].map(([name,info])=>({name,...(info||{})})),onAlarm:alarmsEvent},
     offscreen:{createDocument:async({url})=>{offscreen.open=true;offscreen.url=url;},closeDocument:async()=>{offscreen.open=false;}},
     notifications:{create:async info=>{notified.push(info);return 'n'+notified.length;},clear:async()=>true,onClicked:{addListener(){}}},

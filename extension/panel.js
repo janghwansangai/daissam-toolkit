@@ -7,6 +7,8 @@ const $=id=>document.getElementById(id);
 let profileState,device,editingNote=false,currentNoteId=null,unsavedNote=false,myRevision='',markFolder='',vaultItems=[],vaultEpoch=0,vaultBusy=false;
 // 백업 복원 화면이 들고 있는 것. 잠금 상태에서는 비운다(백업 내용이 메모리에 남아 있지 않게).
 let openedBackup=null,backupFile=null,gateBackupFile=null;
+// 카메라·마이크 목록은 그 화면이 열려 있는 동안만 읽고 지켜본다(pageShown). 목록을 채운 뒤에야 저장할 때 선택값을 믿는다.
+let capDevices=null,micDevices=null,captureReady=null,recDevicesListed=false;
 // 이 창이 쓴 글인지 가리는 표. 같은 기기의 다른 창이 쓴 것만 글상자를 갈아끼운다.
 const windowTag=crypto.randomUUID().slice(0,8);
 // 한글·일본어·중국어는 IME 가 한 글자를 조합하는 동안 계속 입력이 온다. 그 사이에
@@ -67,7 +69,7 @@ for(const button of document.querySelectorAll('.dockbtn')){
 function showPage(name){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('selected',b.dataset.page===name));
   document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==name);
-  notice();
+  notice();pageShown(name);
 }
 let pageBefore='notes';
 event('dock-settings','click',()=>{
@@ -155,7 +157,7 @@ for(const button of document.querySelectorAll('nav button'))button.addEventListe
   if(button.dataset.page!=='vault')closeVault();
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('selected',b===button));
   // 설정도 page 로 취급한다. 탭을 고르면 같이 닫힌다.
-  document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==button.dataset.page);notice();
+  document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==button.dataset.page);notice();pageShown(button.dataset.page);
   if(button.dataset.page==='presenter')refreshPresenter();
 });
 function updateCount(){const count=new TextEncoder().encode($('note').value).length;$('note-count').textContent=count.toLocaleString()+' / 5,500 B';}
@@ -985,8 +987,10 @@ function checkRecFormat(){
 }
 async function saveRecord(){
   // 카메라 이름도 함께 둔다. 전체 화면 녹화에서는 발표 도우미 앱이 같은 카메라를 열어야 한다.
-  recOptions={...recOptions,camera:$('rec-cam').checked,cameraId:$('rec-cam-dev').value,cameraName:$('rec-cam-dev').selectedOptions[0]?.textContent||'',
-    mic:$('rec-mic').checked,micId:$('rec-mic-dev').value,
+  // 칸의 목록은 화면을 열어야 채워진다. 채우기 전의 빈 칸 값으로 저장하면 이미 골라 둔 장치가 지워진다.
+  const devices=recDevicesListed?{cameraId:$('rec-cam-dev').value,cameraName:$('rec-cam-dev').selectedOptions[0]?.textContent||'',micId:$('rec-mic-dev').value}:{};
+  recOptions={...recOptions,camera:$('rec-cam').checked,...devices,
+    mic:$('rec-mic').checked,
     controlBar:$('rec-control').getAttribute('aria-checked')==='true',res:$('rec-res').value,format:$('rec-format').value,
     countdown:Number($('rec-count').value)||0,limit:Number($('rec-limit').value)||0,sound:$('rec-sound').checked};
   await chrome.storage.local.set({recordOptions:recOptions});
@@ -1005,8 +1009,27 @@ async function listRecDevices(){
   };
   fill($('rec-cam-dev'),'videoinput','카메라',recOptions.cameraId);
   fill($('rec-mic-dev'),'audioinput','마이크',recOptions.micId);
+  recDevicesListed=true;
 }
-try{navigator.mediaDevices.addEventListener('devicechange',()=>{listRecDevices().catch(()=>{});});}catch{}
+// 카메라·마이크 목록은 그것을 보여 주는 화면이 열려 있는 동안에만 읽고 변화를 지켜본다. 사이드바를 열 때마다 읽으면
+// Chrome 이 ‘카메라’와 ‘오디오’ 보조 프로세스를 띄워 그대로 둔다 — 실측 두 개에 약 48MB, 녹화를 한 번도 안 하는 날에도.
+// 목록을 안 읽고 devicechange 를 듣기만 해도 뜨므로, 읽기도 듣기도 그 화면이 열린 동안만 한다.
+function watchDevices(show,current,load){
+  try{
+    if(show&&!current){
+      const handler=()=>{load().catch(()=>{});};
+      navigator.mediaDevices.addEventListener('devicechange',handler);
+      handler();
+      return handler;
+    }
+    if(!show&&current){navigator.mediaDevices.removeEventListener('devicechange',current);return null;}
+  }catch{}
+  return current;
+}
+function pageShown(name){
+  capDevices=watchDevices(name==='capture',capDevices,()=>(captureReady||Promise.resolve()).then(listRecDevices));
+  micDevices=watchDevices(name==='tools'&&$('tool-rec').open,micDevices,recListMics);
+}
 event('rec-start','click',async()=>{
   await saveRecord();
   if(recOptions.mode==='camera'){
@@ -1033,7 +1056,7 @@ event('rec-start','click',async()=>{
   const result=await api('record-open',{mode,options});
   capSay(result?.cancelled?'녹화를 그만두었습니다.':'녹화 창을 열었습니다. 창을 닫거나 ■ 를 누르면 끝납니다.');
 });
-loadCapture().then(listRecDevices).catch(()=>{});
+captureReady=loadCapture().catch(()=>{});
 await loadShortcuts().catch(()=>{});
 await loadKnobs().catch(()=>{});
 refreshPresenter();
@@ -1276,8 +1299,8 @@ async function recListMics(){
   });
   if([...box.options].some(option=>option.value===chosen))box.value=chosen;
 }
-try{navigator.mediaDevices.addEventListener('devicechange',()=>{recListMics().catch(()=>{});});}catch{}
-recListMics().catch(()=>{});
+// 녹음기 칸이 접혀 있으면 마이크 목록이 보이지 않는다. 펼칠 때 읽고, 접거나 다른 화면으로 가면 그만 지켜본다.
+$('tool-rec').addEventListener('toggle',()=>{micDevices=watchDevices(!$('tools').hidden&&$('tool-rec').open,micDevices,recListMics);});
 function recSay(text,busy){$('rec-state').textContent=text;$('rec-state').classList.toggle('on',!!busy);}
 function recWarn(text){$('rec-warn').textContent=text||'';$('rec-warn').hidden=!text;}
 function recType(){

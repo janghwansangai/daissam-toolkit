@@ -5,6 +5,7 @@
   const previous=globalThis.__browserSheriffGuard||null;
   const stale=[...document.querySelectorAll('[data-browser-sheriff-guard]')];
   let host, controls=[], locked=true, revision=-1, wheelZoom=false, zoomAt=0, retired=false;
+  let armZoom=()=>{};   // 맥에서만 아래에서 채운다
   // macOS 에는 Command + 휠로 화면 크기를 바꾸는 기능이 없다. Windows 는 Ctrl + 휠이 이미 한다.
   const onMac=/Mac/i.test((typeof navigator!=='undefined'&&(navigator.platform||navigator.userAgent))||'');
   const cleanups=[];
@@ -22,6 +23,7 @@
     if(s.revision<revision)return;revision=s.revision;
     wheelZoom=s.wheelZoom!==false;
     locked=!!s.locked;
+    blockScrolling(locked);if(locked)armZoom(false);
     if(!locked){host?.remove();host=null;retire();return;}
     if(host?.isConnected){retire();return;}
     host=document.createElement('div');host.setAttribute('data-browser-sheriff-guard','');
@@ -53,27 +55,65 @@
     if(topFrame)button.focus({preventScroll:true});
     if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
   }
-  for(const type of ['click','dblclick','mousedown','pointerdown','keydown','keyup','beforeinput','input','paste','wheel','touchstart','submit','dragstart']) {
-    listen(window,type,e=>{
-      if(!runtimeAlive()){instance.dispose();return;}
-      if(locked&&type==='keydown'&&e.key==='Tab'&&topFrame){
-        e.preventDefault();e.stopImmediatePropagation();
-        const index=controls.indexOf(host?.shadowRoot?.activeElement);
-        controls[(index+(e.shiftKey?-1:1)+controls.length)%controls.length]?.focus();return;
-      }
-      if(locked&&!e.composedPath().includes(host)){e.preventDefault();e.stopImmediatePropagation();}
-    }, {capture:true,passive:false});
+  // 잠겨 있으면 입력이 페이지에 닿지 않게 가로챈다.
+  const BLOCK={capture:true,passive:false};
+  const block=type=>e=>{
+    if(!runtimeAlive()){instance.dispose();return;}
+    if(locked&&type==='keydown'&&e.key==='Tab'&&topFrame){
+      e.preventDefault();e.stopImmediatePropagation();
+      const index=controls.indexOf(host?.shadowRoot?.activeElement);
+      controls[(index+(e.shiftKey?-1:1)+controls.length)%controls.length]?.focus();return;
+    }
+    if(locked&&!e.composedPath().includes(host)){e.preventDefault();e.stopImmediatePropagation();}
+  };
+  for(const type of ['click','dblclick','mousedown','pointerdown','keydown','keyup','beforeinput','input','paste','submit','dragstart'])listen(window,type,block(type),BLOCK);
+  // 휠·터치는 스크롤을 막을 수 있는 입력이다. ‘막을 수 있다’(passive:false)고 등록해 두기만 해도 Chrome 은 그 입력마다 이
+  // 페이지의 메인 스레드가 답하기를 기다렸다가 스크롤한다 — 실측(바쁜 페이지): 반응 중앙값 +5~11ms, 느린 쪽 +20ms.
+  // 그래서 잠겨 있는 동안에만 듣는다. 풀려 있으면 아예 듣지 않아 스크롤이 Chrome 기본 경로(별도 스레드)를 탄다.
+  let scrollBlockers=[];
+  function blockScrolling(on){
+    if(on&&!scrollBlockers.length){
+      for(const type of ['wheel','touchstart']){const fn=block(type);window.addEventListener(type,fn,BLOCK);scrollBlockers.push([type,fn]);}
+    }else if(!on&&scrollBlockers.length){
+      for(const [type,fn] of scrollBlockers)window.removeEventListener(type,fn,BLOCK);
+      scrollBlockers=[];
+    }
   }
-  if(onMac) listen(window,'wheel',event=>{
-    if(!wheelZoom||locked||!event.metaKey)return;
-    if(!runtimeAlive())return;
-    event.preventDefault();
-    // 휠은 아주 자주 온다. 배율 요청만 솎아 내고 페이지 이동은 매번 막는다.
-    const now=Date.now();
-    if(now-zoomAt<70)return;
-    zoomAt=now;
-    chrome.runtime.sendMessage({type:'page-zoom',step:event.deltaY>0?-1:1}).catch(()=>{});
-  },{capture:true,passive:false});
+  cleanups.push(()=>blockScrolling(false));
+  blockScrolling(true);   // 상태를 알기 전에는 잠긴 것으로 본다(막는 쪽이 안전하다)
+  // macOS 에는 Command + 휠로 화면 크기를 바꾸는 기능이 없다. Windows 는 Ctrl + 휠이 이미 한다.
+  // 휠을 가로채려면 막을 수 있는 듣는 쪽이 필요한데 늘 두면 모든 스크롤이 느려진다(위). 그래서 Command 를 누르는 동안만 둔다.
+  // 키 입력은 포커스가 있는 프레임만 받는다. 못 받은 프레임(포커스가 다른 프레임에 있을 때)은 Command+휠의 첫 눈금을
+  // 막지는 못하지만(그 한 눈금은 페이지도 같이 움직인다) 그 눈금에서 알아채 배율을 바꾸고 다음 눈금부터 막는다.
+  if(onMac){
+    let zoomOn=false;
+    const zoomStep=event=>{
+      // 휠은 아주 자주 온다. 배율 요청만 솎아 내고 페이지 이동은 매번 막는다.
+      const now=Date.now();
+      if(now-zoomAt<70)return;
+      zoomAt=now;
+      chrome.runtime.sendMessage({type:'page-zoom',step:event.deltaY>0?-1:1}).catch(()=>{});
+    };
+    const zoomWheel=event=>{
+      if(!event.metaKey){armZoom(false);return;}   // 키를 뗐는데 놓친 경우: 스스로 물러난다
+      if(!wheelZoom||locked||!runtimeAlive())return;
+      event.preventDefault();
+      zoomStep(event);
+    };
+    armZoom=on=>{
+      if(on&&!zoomOn){window.addEventListener('wheel',zoomWheel,BLOCK);zoomOn=true;}
+      else if(!on&&zoomOn){window.removeEventListener('wheel',zoomWheel,BLOCK);zoomOn=false;}
+    };
+    cleanups.push(()=>armZoom(false));
+    const command=e=>armZoom(!!e.metaKey&&wheelZoom&&!locked);
+    listen(window,'keydown',command,{capture:true,passive:true});
+    listen(window,'keyup',command,{capture:true,passive:true});
+    listen(window,'blur',()=>armZoom(false));
+    listen(window,'wheel',event=>{
+      if(!event.metaKey||zoomOn||!wheelZoom||locked||!runtimeAlive())return;
+      armZoom(true);zoomStep(event);
+    },{capture:true,passive:true});
+  }
   async function refresh(){try{const r=await chrome.runtime.sendMessage({type:'state'});if(r?.ok)render(r.data);}catch{ /* During update keep the existing guard until reload. */ }}
   const pushed=m=>{if(m.type==='lock-state')render(m.state);};
   chrome.runtime.onMessage.addListener(pushed);cleanups.push(()=>chrome.runtime.onMessage.removeListener(pushed));

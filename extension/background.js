@@ -105,7 +105,7 @@ async function initialize() {
   await migrateNotes();
   const p=await profile();
   if(p?.idleMinutes) chrome.idle.setDetectionInterval(p.idleMinutes*60);
-  await chrome.alarms.create('flush-notes',{periodInMinutes:1});
+  await settleFlushAlarm();
   // 이미 열려 있던 탭에 잠금 화면(guard.js)을 넣는 일은 확장이 켜진 뒤 한 번이면 된다. 새로 여는 페이지에는
   // manifest 의 content_scripts 가 알아서 넣는다. 서비스 워커는 30초 놀면 꺼졌다가 알람(1분)마다 다시 켜지는데,
   // 그때마다 모든 탭에 다시 넣었더니 잠겨 있는 동안 1분 안팎마다 잠금 화면이 지워졌다 다시 그려져 깜박였다(사용자 보고).
@@ -326,10 +326,25 @@ async function scheduleBells() {
     chrome.alarms.create('bell-'+index,{when:when.getTime(),periodInMinutes:1440});
   });
 }
+// 동기화를 기다리는 메모가 있을 때만 1분 알람을 둔다. 늘 켜 두었더니 보낼 것이 없어도 확장이 1분마다 깨어났다
+// (서비스 워커 시작 + 모든 탭에 상태 전달). 실측: 서비스 워커가 절반 넘게 켜져 있었다.
+// 알람이 있어야 하는데 없으면 만들고, 없어도 되는데 있으면(예전 버전이 만든 것 포함) 지운다.
+async function settleFlushAlarm() {
+  const waiting=async()=>Object.keys((await chrome.storage.local.get('pendingNotes')).pendingNotes||{}).length>0;
+  const alarm=await chrome.alarms.get('flush-notes');
+  if(await waiting()){
+    if(!alarm)await chrome.alarms.create('flush-notes',{delayInMinutes:0.5,periodInMinutes:1});
+    return;
+  }
+  if(!alarm)return;
+  await chrome.alarms.clear('flush-notes');
+  // 지우는 사이에 메모가 새로 쌓였을 수 있다. 한 번 더 보고, 쌓였으면 다시 만든다.
+  if(await waiting())await chrome.alarms.create('flush-notes',{delayInMinutes:0.5,periodInMinutes:1});
+}
 async function flushNotes() {
   const {pendingNotes={},device}=await chrome.storage.local.get(['pendingNotes','device']);
   const ids=Object.keys(pendingNotes);
-  if(!ids.length) return;
+  if(!ids.length){await settleFlushAlarm();return;}
   let failure=null;
   for(const id of ids){
     const value=pendingNotes[id];
@@ -351,6 +366,8 @@ async function flushNotes() {
     } catch(error) { failure=error.message; }
   }
   await chrome.storage.local.set({noteSyncError:failure});
+  // 다 보냈으면 알람을 끄고, 못 보낸 것이 남았으면 그대로 두어 1분마다 다시 시도한다.
+  await settleFlushAlarm();
 }
 chrome.alarms.onAlarm.addListener(a=>{if(a.name==='flush-notes') exclusive(async()=>{await ready;await flushNotes();});});
 chrome.alarms.onAlarm.addListener(a=>{
