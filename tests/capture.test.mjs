@@ -478,3 +478,13 @@ test('사이드바는 앱이 건넨 새 소식만 한 번 보여 준다', async 
   show({notice: '  ', noticeAtMs: now});
   assert.deepEqual(shown, ['발표 도우미: 저장도 복사도 하지 못했습니다', '발표 도우미: 저장도 복사도 하지 못했습니다']);
 });
+
+// 도크 단추 안내는 운영체제 풍선말(title)이라 CSS 로 줄바꿈을 막을 수 없다. 길면 두 줄로 넘어간다
+// (사용자 보고 · 윈도우 실기기: 15자 이하만 한 줄). 자세한 설명은 사이드바 캡처 탭에 둔다.
+test('도크 단추 안내는 한 줄에 들어가게 짧다(15자 이하)', () => {
+  const html = readFileSync('extension/dock.html', 'utf8');
+  const tips = [...html.matchAll(/data-tip="([^"]*)"/g)].map(match => match[1]);
+  assert.ok(tips.length >= 10, '도크 단추 안내를 찾았다');
+  const long = tips.filter(tip => [...tip].length > 15);
+  assert.deepEqual(long, [], `너무 긴 안내: ${long.join(' / ')}`);
+});
