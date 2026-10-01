@@ -2733,10 +2733,30 @@ namespace BrowserSheriff {
       try{Native.MagSetFullscreenTransform(1,0,0);}catch{}
       try{Native.MagShowSystemCursor(true);}catch{}
       try{if(Presenter.Live!=null)Presenter.Live.Rescue();}catch{}
+      Note(why);
+    }
+    // 예외를 파일에 남긴다. CatchException 이라 앱은 계속 도므로, 타이머 Tick 처럼 되풀이되는
+    // 자리에서 같은 예외가 나면 파일이 끝없이 커질 수 있다(맥 세션 지적, v0.39.4). 두 겹으로 막는다 —
+    // ① 바로 앞과 똑같은 예외면 적지 않는다 ② 1MB 를 넘으면 error.old.log 로 한 번 넘기고 새로 시작한다.
+    //    남는 파일은 늘 두 벌뿐이다.
+    static string lastTrouble="";
+    static void Note(Exception why){
+      string text=why==null?"(알 수 없는 예외)":why.ToString();
+      if(text==lastTrouble)return;
+      lastTrouble=text;
       try{
-        File.AppendAllText(Path.Combine(Presenter.Box,"error.log"),
+        string path=Path.Combine(Presenter.Box,"error.log");
+        try{
+          FileInfo info=new FileInfo(path);
+          if(info.Exists&&info.Length>1048576){
+            string old=Path.Combine(Presenter.Box,"error.old.log");
+            try{File.Delete(old);}catch{}
+            File.Move(path,old);
+          }
+        }catch{}
+        File.AppendAllText(path,
           DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss",CultureInfo.InvariantCulture)+"  v"+Presenter.Ver+"\r\n"
-          +(why==null?"(알 수 없는 예외)":why.ToString())+"\r\n\r\n",Encoding.UTF8);
+          +text+"\r\n\r\n",Encoding.UTF8);
       }catch{}
     }
     [STAThread] public static void Main(string[] args){
