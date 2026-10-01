@@ -198,3 +198,13 @@ copy /Y bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\Presenter.exe ..\
 [돌려줄 파일]    presenter/windows/Presenter.cs (전체)
 [확장에 필요한 것] 있으면: 파일·줄·이유 (직접 고치지 말 것)
 ```
+
+## v0.38.0 — 윈도우 세션에 요청: 확장 ID 두 개 허용
+
+크롬 웹 스토어(비공개) 판의 확장 ID 는 `cgefngalkalghipmhijniclmlpimpmhf` 이다. 개발자 모드 판의 `ehgodopakibamgeopmelemjmjdjhbdgm` 도 계속 쓴다. 맥은 둘 다 받게 고쳤다(`NativeHost.extensionIDs`).
+`presenter/windows/Presenter.cs` 에서 같은 일을 해 주세요(소유 규칙상 맥 세션이 직접 고치지 않는다):
+1. `ExtensionID` 상수(약 2208행)를 두 ID 의 배열로.
+2. 2504행 신뢰 확인: 인자가 둘 중 하나로 시작하면 통과.
+3. 2607행 Check: 레지스트리 JSON 에 두 ID 가 모두 들어 있는지.
+4. 2670행 `allowed_origins` 에 두 ID 를 모두 넣기.
+시험: 두 ID 로 호스트가 뜨고, 다른 ID 는 거부되는지. 그 뒤 `Install.cmd` → `Check.cmd`.

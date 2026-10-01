@@ -276,6 +276,7 @@ event('export-note','click',()=>download(($('note-title').value||'빠른-메모'
 // 발표 도우미 앱을 확장 안에 넣어 두고 그대로 내려받게 한다. 파일을 따로 주고받지 않아도
 // 되니 남에게 건넬 때 ZIP 하나로 끝난다. 설치는 사람이 해야 한다 — 확장은 남의 컴퓨터에
 // 프로그램을 설치할 수 없다(브라우저가 그렇게 두지 않는다).
+const RELEASES='https://github.com/janghwansangai/daissam-toolkit/releases/latest';
 const APPS={
   mac:{file:'presenter/macos.zip',name:'다있쌤-발표도우미-맥.zip'},
   win:{file:'presenter/windows.zip',name:'다있쌤-발표도우미-윈도우.zip'}
@@ -286,7 +287,12 @@ async function getApp(which,button){
   const was=button.textContent;button.textContent='준비 중…';
   try{
     const reply=await fetch(chrome.runtime.getURL(app.file));
-    if(!reply.ok)throw Error('앱 파일이 이 확장에 들어 있지 않습니다. 배포본 ZIP을 받아 주세요.');
+    if(!reply.ok){
+      // 스토어 판에는 앱 파일이 들어 있지 않다(스토어는 실행 파일을 받지 않는다). 릴리스 쪽으로 보낸다.
+      await chrome.tabs.create({url:RELEASES});
+      notice('앱은 릴리스 페이지에서 받습니다. 열린 탭에서 '+(which==='mac'?'macos':'windows')+' 파일을 내려받으세요.');
+      return;
+    }
     const blob=await reply.blob();
     if(!blob.size)throw Error('앱 파일이 비어 있습니다.');
     download(app.name,blob,'application/zip');

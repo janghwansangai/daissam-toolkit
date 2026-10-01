@@ -753,7 +753,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         guard let path=Bundle.main.executablePath else {showError("앱 경로를 찾을 수 없습니다.");return}
         let manifest: [String:Any]=["name":"app.browsersheriff.presenter","description":"다있쌤 클립보드 도우미",
                                     "path":path,"type":"stdio",
-                                    "allowed_origins":["chrome-extension://\(NativeHost.extensionID)/"]]
+                                    "allowed_origins":NativeHost.extensionIDs.map{"chrome-extension://\($0)/"}]
         do {
             try FileManager.default.createDirectory(at:hostManifest.deletingLastPathComponent(),withIntermediateDirectories:true)
             try JSONSerialization.data(withJSONObject:manifest,options:[.prettyPrinted]).write(to:hostManifest)
@@ -2402,7 +2402,8 @@ enum Shots {
 }
 
 enum NativeHost {
-    static let extensionID = "ehgodopakibamgeopmelemjmjdjhbdgm"
+    // 직접 올린(개발자 모드) 판과 크롬 웹 스토어 판은 확장 ID 가 다르다. 둘 다 받아들인다.
+    static let extensionIDs = ["ehgodopakibamgeopmelemjmjdjhbdgm","cgefngalkalghipmhijniclmlpimpmhf"]
     static let prefix = "다있쌤-캡처-"
     static let oldPrefix = "보완관-캡처-"        // 이름을 바꾸기 전 파일
     static let out = FileHandle.standardOutput
@@ -2707,7 +2708,7 @@ enum NativeHost {
         catch { send(["kind":"guest","ok":false,"message":"게스트 창을 열지 못했습니다."]) }
     }
     static func run() -> Never {
-        guard CommandLine.arguments.contains(where:{$0.hasPrefix("chrome-extension://\(extensionID)")}) else { exit(1) }
+        guard CommandLine.arguments.contains(where:{arg in extensionIDs.contains{arg.hasPrefix("chrome-extension://\($0)")}}) else { exit(1) }
         lastChange = NSPasteboard.general.changeCount
         let timer = Timer(timeInterval:0.5,repeats:true) { _ in poll(); pollDesktop() }
         RunLoop.main.add(timer,forMode:.common)

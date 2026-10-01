@@ -62,7 +62,7 @@ cat > "$HOSTS/app.browsersheriff.presenter.json" <<JSON
   "description": "다있쌤 클립보드 도우미",
   "path": "$TARGET/Contents/MacOS/Presenter",
   "type": "stdio",
-  "allowed_origins": [ "chrome-extension://ehgodopakibamgeopmelemjmjdjhbdgm/" ]
+  "allowed_origins": [ "chrome-extension://ehgodopakibamgeopmelemjmjdjhbdgm/", "chrome-extension://cgefngalkalghipmhijniclmlpimpmhf/" ]
 }
 JSON
 
