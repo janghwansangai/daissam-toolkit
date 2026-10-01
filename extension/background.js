@@ -106,8 +106,17 @@ async function initialize() {
   const p=await profile();
   if(p?.idleMinutes) chrome.idle.setDetectionInterval(p.idleMinutes*60);
   await chrome.alarms.create('flush-notes',{periodInMinutes:1});
-  const existing=await chrome.tabs.query({url:['http://*/*','https://*/*']});
-  await Promise.allSettled(existing.map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id,allFrames:true},files:['guard.js']})));
+  // 이미 열려 있던 탭에 잠금 화면(guard.js)을 넣는 일은 확장이 켜진 뒤 한 번이면 된다. 새로 여는 페이지에는
+  // manifest 의 content_scripts 가 알아서 넣는다. 서비스 워커는 30초 놀면 꺼졌다가 알람(1분)마다 다시 켜지는데,
+  // 그때마다 모든 탭에 다시 넣었더니 잠겨 있는 동안 1분 안팎마다 잠금 화면이 지워졌다 다시 그려져 깜박였다(사용자 보고).
+  // storage.session 은 확장을 다시 불러오거나 업데이트·끔→켬 할 때, 그리고 브라우저를 다시 켤 때 비워진다 —
+  // 곧 ‘다시 넣어야 하는 때’와 같다. 그때의 교체도 guard.js 가 끊김 없이 한다.
+  const {guardsInjected}=await chrome.storage.session.get('guardsInjected');
+  if(!guardsInjected){
+    const existing=await chrome.tabs.query({url:['http://*/*','https://*/*']});
+    await Promise.allSettled(existing.map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id,allFrames:true},files:['guard.js']})));
+    await chrome.storage.session.set({guardsInjected:true});
+  }
   await enforce();
 }
 const ready=initialize();

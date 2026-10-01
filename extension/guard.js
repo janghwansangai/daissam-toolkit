@@ -1,11 +1,19 @@
 (() => {
-  try{globalThis.__browserSheriffGuard?.dispose();}catch{}
-  document.querySelectorAll('[data-browser-sheriff-guard]').forEach(node=>node.remove());
-  let host, controls=[], locked=true, revision=-1, wheelZoom=false, zoomAt=0;
+  // 앞서 들어온 잠금 화면(같은 확장의 앞 주입, 또는 업데이트 전 버전이 남긴 것)은 새 것이 올라갈 때까지 그대로 둔다.
+  // 시작하자마자 지우면, 새 주입이 서비스 워커에 상태를 묻고 답을 받는 동안 원래 화면이 그대로 드러나 깜박였다
+  // (사용자 보고). 새 것이 ‘잠금’을 확인해 자기 화면을 올린 뒤에야 옛것을 걷는다 — 아래 retire().
+  const previous=globalThis.__browserSheriffGuard||null;
+  const stale=[...document.querySelectorAll('[data-browser-sheriff-guard]')];
+  let host, controls=[], locked=true, revision=-1, wheelZoom=false, zoomAt=0, retired=false;
   // macOS 에는 Command + 휠로 화면 크기를 바꾸는 기능이 없다. Windows 는 Ctrl + 휠이 이미 한다.
   const onMac=/Mac/i.test((typeof navigator!=='undefined'&&(navigator.platform||navigator.userAgent))||'');
   const cleanups=[];
-  const instance={dispose(){locked=false;host?.remove();host=null;for(const clean of cleanups){try{clean();}catch{}}}};
+  function retire(){
+    if(retired)return;retired=true;
+    try{previous?.dispose();}catch{}
+    for(const node of stale)if(node!==host)node.remove();
+  }
+  const instance={dispose(){retire();locked=false;host?.remove();host=null;for(const clean of cleanups){try{clean();}catch{}}}};
   globalThis.__browserSheriffGuard=instance;
   function runtimeAlive(){try{return !!chrome.runtime?.id;}catch{return false;}}
   function listen(target,type,fn,options){target.addEventListener(type,fn,options);cleanups.push(()=>target.removeEventListener(type,fn,options));}
@@ -14,8 +22,8 @@
     if(s.revision<revision)return;revision=s.revision;
     wheelZoom=s.wheelZoom!==false;
     locked=!!s.locked;
-    if(!locked){host?.remove();host=null;return;}
-    if(host?.isConnected)return;
+    if(!locked){host?.remove();host=null;retire();return;}
+    if(host?.isConnected){retire();return;}
     host=document.createElement('div');host.setAttribute('data-browser-sheriff-guard','');
     host.style.cssText='position:fixed!important;inset:0!important;z-index:2147483647!important;display:block!important;';
     const root=host.attachShadow({mode:'open'});
@@ -40,6 +48,7 @@
     }
     root.append(style,section);
     (document.body||document.documentElement||document).append(host);
+    retire();
     document.activeElement?.blur();
     if(topFrame)button.focus({preventScroll:true});
     if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
