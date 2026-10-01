@@ -1,7 +1,12 @@
 # 현재 인수인계
 
 - 목표: 브라우저 보완관 v0.1 사용자 피드백 수정·기능 추가. 완료 조건은 PROJECT의 "완료 조건과 제한".
-- 상태/활성 편집자: v0.39.2(측정으로 찾은 낭비 세 가지 고침) 반영·시험·포장(2026-10-01). 맥 Claude. 맥·윈도우 앱은 바뀌지 않았다(확장만 바뀜).
+- 상태/활성 편집자: v0.39.3(안정성 점검: 실제 충돌 · 오래된 Chrome · 잠금 안내 화면) 반영·시험·포장(2026-10-02). 맥 Claude. **맥 앱이 바뀌었다**(호스트 충돌 수정) — 설치 필요. 윈도우 앱은 그대로.
+- v0.39.3 규칙(중요) ① **맥 호스트(`NativeHost`)에서 `FileHandle.write(_:)` 를 쓰지 말 것.** Chrome 이 포트를 닫은 뒤 쓰면 Objective-C 예외(Broken pipe)로 프로세스가 abort 한다(2026-09-24 실제 충돌 4건). `write(contentsOf:)` + `hostClosed` 로 오류를 받는다. JSON 을 만들 때도 `JSONSerialization.isValidJSONObject` 를 먼저 본다(`try?` 는 ObjC 예외를 못 잡는다). `tests/host-pipe.test.mjs` 가 실제 바이너리로 지킨다.
+- v0.39.3 규칙 ② **`initialize()`(= `ready`)를 죽이지 말 것.** 모든 명령이 그것을 기다린다. 없어도 되는 단계는 `optional()` 안에 넣는다. **새 chrome.* API 를 쓰기 전에 `minimum_chrome_version`(120)에 있는지 확인**하고, 없으면 `?.` 로 건너뛴다 — `storage.local.setAccessLevel`(Chrome 130+)을 그냥 불러 120~129 에서 확장이 통째로 죽었다. 가장 오래된 시험용 Chrome(127)에서 `CHROME_BIN=<127 경로> node tests/e2e/<이름>.e2e.mjs` 로 돌려 볼 것.
+- v0.39.3 규칙 ③ **`locked.js` 는 해시(원래 주소)를 한 글자도 바꾸지 말고 쓴다.** `decodeURIComponent` 로 풀어 이동하면 `%26`·`%3A%2F` 가 바뀌고, 홀로 있는 `%` 에서는 예외로 스크립트가 죽는다. 풀어서 보이는 것은 안내 글에만, `try/catch` 로.
+- v0.39.3 규칙 ④ 큰 변경 뒤에는 `node tests/e2e/chaos.e2e.mjs 180 <씨앗>` 을 돌린다(메모·잠금·탭·서비스 워커 강제 종료·망가진 메시지를 뒤섞고 ‘확인받은 메모는 남는다’ 등을 지킨다). 실패하면 씨앗을 알려 준다. 시험 장치가 만든 가짜 위반(두 번째 글쓴이)을 먼저 의심하되, 음성 대조(`EXT_DIR=` 로 일부러 망가뜨린 복사본)로 장치가 살아 있음을 확인한다.
+- (이전) v0.39.2(측정으로 찾은 낭비 세 가지 고침) 반영·시험·포장(2026-10-01).
 - v0.39.2 규칙(중요) ① **`flush-notes` 알람은 동기화를 기다리는 메모가 있을 때만 둔다**(`settleFlushAlarm()`). 시작할 때 무조건 만들면 서비스 워커가 1분마다 깬다(탭 20개에서 메모리 +수십MB, 깨어날 때마다 모든 탭에 상태를 보낸다). 메모를 쌓는 새 길을 만들면 `pendingNotes` 에 넣고 알람을 만들거나 `flushNotes()` 로 끝낼 것(끝에서 알아서 맞춘다).
 - v0.39.2 규칙 ② **사이드바에서 `navigator.mediaDevices` 를 시작할 때 읽거나 `devicechange` 를 듣지 말 것.** 듣기만 해도 Chrome 이 카메라·오디오 보조 프로세스를 띄워 약 48MB 를 늘 쓴다. `watchDevices`/`pageShown` 으로 그 화면이 열린 동안만. 칸을 채우기 전 `saveRecord()` 가 빈 값으로 저장하지 않도록 `recDevicesListed` 를 지킬 것.
 - v0.39.2 규칙 ③ **풀려 있는 동안 스크롤을 막을 수 있는(`passive:false`) 휠·터치 듣는 쪽이 0개여야 한다**(`guard.js` `blockScrolling`). 바쁜 페이지에서 스크롤이 느려진다(실측 +20ms). 맥 Command+휠 확대는 Command 를 누르는 동안만(`armZoom`). 새로 입력을 막아야 하면 잠겨 있을 때만 등록할 것. `node tests/e2e/waste.e2e.mjs` 가 Chrome 의 `getEventListeners` 로 직접 센다.

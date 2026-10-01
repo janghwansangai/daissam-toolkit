@@ -208,3 +208,21 @@ copy /Y bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\Presenter.exe ..\
 3. 2607행 Check: 레지스트리 JSON 에 두 ID 가 모두 들어 있는지.
 4. 2670행 `allowed_origins` 에 두 ID 를 모두 넣기.
 시험: 두 ID 로 호스트가 뜨고, 다른 ID 는 거부되는지. 그 뒤 `Install.cmd` → `Check.cmd`.
+
+## v0.39.3 — 윈도우 세션에 알림: 맥에서 실제로 난 충돌과, 윈도우에서 확인해 줄 것
+
+**맥에서 실제로 4번 충돌했다(2026-09-24, v0.36.3~0.37.0).** Chrome 이 띄운 호스트(`NativeHost.run`)가 **이미 닫힌 stdout 통로에 쓰다가**
+`NSFileHandle.write` 의 Objective-C 예외로 SIGABRT 했다. 녹화가 끝나 확장이 포트를 닫는 순간(`recorder-badge` 의 `hide` 뒤)
+늦게 도착한 소식에 답하다가 났다. 맥은 `write(contentsOf:)` + `signal(SIGPIPE,SIG_IGN)` 로 고쳤고 `tests/host-pipe.test.mjs` 가 지킨다.
+
+**윈도우 코드를 읽어 본 결과(맥 세션, 실행은 못 했다):** 같은 모양이다. `NativeHost.Send` 는 `output.Write(...)` 를 감싸지 않아 통로가 닫히면 `IOException`
+을 던진다. 다행히 부르는 곳은 이미 막혀 있다 — `Handle()` 은 통째로 `try{...}catch{}`, `Poll()`·`PollRecorder()` 도 `Send` 를 `try` 안에서 부른다.
+그래서 **지금 알려진 충돌은 없다.** 다만 아래 두 가지는 방어로 두는 편이 안전하다(소유 규칙상 맥 세션이 직접 고치지 않는다):
+
+1. `Send` 자체를 `try/catch(IOException/ObjectDisposedException)` 로 감싸고, 한 번 실패하면 `closed=true` 로 더 쓰지 않게. 새 호출부가 생겨도 안전해진다.
+2. 전역 예외 처리기가 하나도 없다(`Application.ThreadException`·`AppDomain.CurrentDomain.UnhandledException` 검색 결과 0건).
+   WinForms 의 기본 동작은 처리되지 않은 예외에 **‘처리되지 않은 예외’ 대화상자**를 띄우는 것이다. 발표·집중·핀 중에 뜨면 크다.
+   `Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException)` + 두 처리기에서 **대화상자 없이** 배율·커서·표시기·카메라 창을 되돌리고 로그만 남기기.
+
+**윈도우에서 확인해 줄 것(재현):** `Presenter.exe chrome-extension://<확장ID>/` 를 stdin/stdout 파이프와 함께 띄우고, stdout 읽는 쪽을 먼저 닫은 뒤
+stdin 에 `{"type":"recorder","action":"hide"}` 프레임(4바이트 길이 + JSON)을 보내 **종료 코드 0** 인지. 맥 시험(`tests/host-pipe.test.mjs`)과 같은 방법이다.

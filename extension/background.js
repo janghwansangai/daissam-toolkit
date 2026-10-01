@@ -93,30 +93,35 @@ async function checkPin(pin) {
 // 기능을 켜 두면 지켜 주는 줄 알고 믿게 되므로, 남겨 두는 편이 더 나쁘다. 이전에 켜 두었던
 // 주소는 아래에서 한 번 비운다.
 async function initialize() {
+  // 모든 명령이 ready(= 이 함수) 를 기다린다. 여기서 한 번이라도 예외가 나면 확장이 통째로 멈춘다 — 실제로 Chrome 127 에서
+  // setAccessLevel 이 없어 사이드바가 오류 글만 보이고 아무것도 못 했다(최소 지원이 120 인데 130 이상이 필요했다).
+  // 그래서 없어도 되는 단계는 실패해도 건너뛰고(경고만 남긴다), 꼭 필요한 것(기기 번호)만 엄격하게 한다.
+  const optional=async job=>{ try{ await job(); }catch(error){ console.warn('시작 단계를 건너뜁니다:',error?.message||error); } };
   // Chrome decides which side the panel sits on; the extension cannot force the right edge.
-  try{await chrome.sidePanel?.setPanelBehavior?.({openPanelOnActionClick:true});}catch{}
+  await optional(()=>chrome.sidePanel?.setPanelBehavior?.({openPanelOnActionClick:true}));
   // 예전 버전이 등록해 둔 제거 주소를 지운다.
-  try { await chrome.runtime.setUninstallURL(''); } catch {}
-  try { await chrome.storage.local.remove(['logoutOnRemove','safeUntil']); } catch {}
-  await scheduleBells();
-  await chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
-  await chrome.storage.sync.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
+  await optional(()=>chrome.runtime.setUninstallURL(''));
+  await optional(()=>chrome.storage.local.remove(['logoutOnRemove','safeUntil']));
+  await optional(scheduleBells);
+  // 저장소를 확장 자신(신뢰된 곳)만 읽게 좁힌다. local·sync 에 이 함수가 생긴 것은 비교적 최근 Chrome 부터라, 없으면 건너뛴다.
+  for(const area of [chrome.storage.local,chrome.storage.sync])await optional(()=>area.setAccessLevel?.({accessLevel:'TRUSTED_CONTEXTS'}));
   if (!(await chrome.storage.local.get('device')).device) await chrome.storage.local.set({device:crypto.randomUUID()});
-  await migrateNotes();
+  await optional(migrateNotes);
   const p=await profile();
   if(p?.idleMinutes) chrome.idle.setDetectionInterval(p.idleMinutes*60);
-  await settleFlushAlarm();
+  await optional(settleFlushAlarm);
   // 이미 열려 있던 탭에 잠금 화면(guard.js)을 넣는 일은 확장이 켜진 뒤 한 번이면 된다. 새로 여는 페이지에는
   // manifest 의 content_scripts 가 알아서 넣는다. 서비스 워커는 30초 놀면 꺼졌다가 알람(1분)마다 다시 켜지는데,
   // 그때마다 모든 탭에 다시 넣었더니 잠겨 있는 동안 1분 안팎마다 잠금 화면이 지워졌다 다시 그려져 깜박였다(사용자 보고).
   // storage.session 은 확장을 다시 불러오거나 업데이트·끔→켬 할 때, 그리고 브라우저를 다시 켤 때 비워진다 —
   // 곧 ‘다시 넣어야 하는 때’와 같다. 그때의 교체도 guard.js 가 끊김 없이 한다.
-  const {guardsInjected}=await chrome.storage.session.get('guardsInjected');
-  if(!guardsInjected){
+  await optional(async()=>{
+    const {guardsInjected}=await chrome.storage.session.get('guardsInjected');
+    if(guardsInjected)return;
     const existing=await chrome.tabs.query({url:['http://*/*','https://*/*']});
     await Promise.allSettled(existing.map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id,allFrames:true},files:['guard.js']})));
     await chrome.storage.session.set({guardsInjected:true});
-  }
+  });
   await enforce();
 }
 const ready=initialize();
@@ -372,7 +377,13 @@ async function flushNotes() {
 chrome.alarms.onAlarm.addListener(a=>{if(a.name==='flush-notes') exclusive(async()=>{await ready;await flushNotes();});});
 chrome.alarms.onAlarm.addListener(a=>{
   if(a.name==='utility-timer')exclusive(async()=>{await ready;await chrome.storage.local.set({timerEndsAt:0});await announce('타이머','설정한 시간이 끝났습니다.','alarm');});
-  if(a.name.startsWith('bell-'))exclusive(async()=>{await ready;await announce('수업 시보',new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' 입니다.','bell');});
+  if(a.name.startsWith('bell-'))exclusive(async()=>{
+    await ready;
+    await announce('수업 시보',new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' 입니다.','bell');
+    // 시보는 24시간 간격으로 예약되어 있어, 서머타임이 있는 곳이나 컴퓨터를 며칠씩 켜 둘 때 시각에서 조금씩 밀린다.
+    // 울릴 때마다 ‘다음 시각’ 을 벽시계 기준으로 다시 맞춘다(예전에는 서비스 워커가 1분마다 깨며 저절로 맞췄다).
+    try{ await scheduleBells(); }catch{}
+  });
 });
 chrome.runtime.onStartup.addListener(()=>exclusive(async()=>{await ready;if(await startLocked())await lock();}));
 chrome.commands.onCommand.addListener(c=>{
@@ -485,6 +496,7 @@ function cmdConnect(){
   try{ port=chrome.runtime.connectNative(HOST); }catch{ return null; }
   port.onMessage.addListener(message=>{ const waiter=cmdWaiting.shift(); if(waiter)waiter.ok(message); });
   port.onDisconnect.addListener(()=>{
+    void chrome.runtime.lastError;   // 읽지 않으면 도우미가 없을 때마다 ‘Unchecked runtime.lastError’ 가 확장 오류 목록에 쌓인다
     if(cmdPort===port)cmdPort=null;
     const waiting=cmdWaiting; cmdWaiting=[];
     for(const one of waiting)one.no(new Error('발표 도우미와의 연결이 끊어졌습니다.'));
@@ -531,7 +543,7 @@ function badgeConnect(){
   port.onMessage.addListener(message=>{
     if(message?.kind==='recorder'&&message.button)chrome.runtime.sendMessage({type:'recorder-button',button:String(message.button)}).catch(()=>{});
   });
-  port.onDisconnect.addListener(()=>{ if(badgePort===port)badgePort=null; });
+  port.onDisconnect.addListener(()=>{ void chrome.runtime.lastError; if(badgePort===port)badgePort=null; });
   badgePort=port;
   port.postMessage({type:'recorder-watch'});
   return port;

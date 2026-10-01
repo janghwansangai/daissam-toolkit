@@ -2420,13 +2420,24 @@ enum NativeHost {
     static var desktop: URL? { Shots.desktop }
     static var shots: URL? { Shots.folder }
 
+    // Chrome 이 포트를 닫은 뒤에는 이 통로에 쓸 수 없다. 그때 FileHandle.write(_:) 는 Objective-C 예외
+    // (NSFileHandleOperationException, Broken pipe)를 던지고 Swift 는 그것을 잡지 못해 프로세스가 abort 된다.
+    // 2026-09-24 실제 충돌 4건(0.36.3~0.37.0)이 모두 이 두 줄이었다 — 녹화가 끝나 확장이 포트를 닫는 순간 늦게 도착한
+    // 소식에 답하다가. write(contentsOf:) 는 같은 상황을 Swift 오류로 알려 주므로 잡을 수 있다.
+    static var hostClosed = false
     static func send(_ object: [String:Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject:object) else { return }
+        // NaN 같은 값이 들어 있으면 JSONSerialization 도 Objective-C 예외를 던진다(try? 로는 못 잡는다). 먼저 본다.
+        guard JSONSerialization.isValidJSONObject(object), let data = try? JSONSerialization.data(withJSONObject:object) else { return }
         var length = UInt32(data.count).littleEndian
-        writeLock.lock()
-        out.write(Data(bytes:&length,count:4))
-        out.write(data)
-        writeLock.unlock()
+        writeLock.lock(); defer { writeLock.unlock() }
+        if hostClosed { return }
+        do {
+            try out.write(contentsOf:Data(bytes:&length,count:4))
+            try out.write(contentsOf:data)
+        } catch {
+            // 더 쓸 곳이 없다. 읽는 쪽이 EOF 를 보면 4초 뒤 스스로 끝난다.
+            hostClosed = true
+        }
     }
     static func thumbnail(_ image: NSImage) -> String? {
         let size = image.size
@@ -2709,6 +2720,8 @@ enum NativeHost {
     }
     static func run() -> Never {
         guard CommandLine.arguments.contains(where:{arg in extensionIDs.contains{arg.hasPrefix("chrome-extension://\($0)")}}) else { exit(1) }
+        // 닫힌 통로에 써도 신호로 죽지 않게 한다(Chrome 은 이미 무시하게 해 두고 띄우지만 믿지 않는다). 쓰기는 오류로 받는다.
+        signal(SIGPIPE,SIG_IGN)
         lastChange = NSPasteboard.general.changeCount
         let timer = Timer(timeInterval:0.5,repeats:true) { _ in poll(); pollDesktop() }
         RunLoop.main.add(timer,forMode:.common)

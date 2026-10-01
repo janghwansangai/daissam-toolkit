@@ -183,3 +183,19 @@ test('윈도우: 휠 확대 듣는 쪽이 아예 없다(Ctrl+휠은 Chrome 이 �
   env.lockState({locked: false, name: 'T', revision: 2, wheelZoom: true});
   assert.equal(env.listeners.filter(l => l.type === 'wheel').length, 0, '풀리면 휠 듣는 쪽이 하나도 없다');
 });
+
+// ── 수업 시보는 울릴 때마다 다음 시각을 다시 맞춘다 ─────────────────────
+test('수업 시보가 울리면 다음 시보를 벽시계 기준으로 다시 맞춘다(서머타임·장시간 켜 둠에서 밀리지 않게)', async () => {
+  await send('unlock', {pin: '123456'});
+  assert.equal((await send('tool-bells', {times: ['08:50', '13:10'], on: true})).ok, true);
+  for (const name of ['bell-0', 'bell-1']) assert.ok(mock.alarmNames.has(name), name + ' 이 예약됐다');
+  // 낡은 예약(오래 켜 둬서 밀린 것)을 흉내 낸다
+  mock.alarmNames.set('bell-0', {when: 1, periodInMinutes: 1440});
+  mock.alarmNames.set('bell-1', {when: 1, periodInMinutes: 1440});
+  mock.events.alarmsEvent.emit({name: 'bell-0'}); await settle(); await settle();
+  for (const name of ['bell-0', 'bell-1']) {
+    const alarm = mock.alarmNames.get(name);
+    assert.ok(alarm && alarm.when > Date.now() && alarm.when <= Date.now() + 24 * 3600 * 1000 + 1000, `${name} 이 앞으로 24시간 안의 정확한 다음 시각으로 다시 맞춰졌다: ${JSON.stringify(alarm)}`);
+  }
+  assert.ok(mock.notified.length >= 1, '울림(알림)은 그대로 낸다');
+});

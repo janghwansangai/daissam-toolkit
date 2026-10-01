@@ -25,7 +25,20 @@ function setBox(box,text){
   if(composing||document.activeElement===box)return;
   if(box.value!==text)box.value=text;
 }
-async function api(type,data={}) { const r=await chrome.runtime.sendMessage({type,...data});if(!r?.ok)throw new Error(r?.error||'확장에 연결할 수 없습니다.');return r.data; }
+async function api(type,data={}) {
+  let r;
+  try { r=await chrome.runtime.sendMessage({type,...data}); }
+  catch(error) {
+    // 서비스 워커가 꺼지는 바로 그 순간에 보내면 ‘Receiving end does not exist’ 로 거절될 수 있다(Chrome 의 알려진 경합).
+    // 이 오류는 메시지가 아직 닿지 않았다는 뜻이라 어떤 명령이든 한 번 다시 보내도 안전하다(‘응답 전에 포트가 닫힘’ 은 처리됐을 수
+    // 있어서 다시 보내지 않는다). 시험에서 서비스 워커를 1,200번 흔들 때 1번 나왔다.
+    if(!/Receiving end does not exist/.test(String(error?.message)))throw error;
+    await new Promise(resolve=>setTimeout(resolve,200));
+    r=await chrome.runtime.sendMessage({type,...data});
+  }
+  if(!r?.ok)throw new Error(r?.error||'확장에 연결할 수 없습니다.');
+  return r.data;
+}
 function notice(message=''){ $('notice').textContent=message;$('notice').hidden=!message; }
 function event(id,type,fn){$(id).addEventListener(type,async e=>{try{notice();await fn(e);}catch(err){notice(err.message);}});}
 // 앱 파일은 60MB가 넘는다. Blob 을 또 감싸면 메모리를 두 배로 쓰므로 그대로 쓴다.
@@ -1060,7 +1073,16 @@ captureReady=loadCapture().catch(()=>{});
 await loadShortcuts().catch(()=>{});
 await loadKnobs().catch(()=>{});
 refreshPresenter();
-try{await renderState(await api('state'));device=(await chrome.storage.local.get('device')).device;await loadNotes();}catch(e){notice(e.message);}
+// 처음 상태는 서비스 워커가 막 깨어나는 중이라 한두 번 거절될 수 있다. 바로 포기하면 사이드바가 빈 채로 남는다.
+// 또 기기 번호(device)는 화면을 그리기 전에 읽어 둔다 — 그리는 도중 예외가 나도 번호가 비어 있지 않게(비면 북마크가
+// ‘marks_undefined’ 처럼 엉뚱한 칸에 쌓인다).
+async function firstState(){
+  for(let tries=0;;tries++){
+    try{return await api('state');}
+    catch(error){if(tries>=2)throw error;await new Promise(resolve=>setTimeout(resolve,500));}
+  }
+}
+try{const first=await firstState();device=(await chrome.storage.local.get('device')).device;await renderState(first);await loadNotes();}catch(e){notice(e.message);}
 
 // ── 메모 핀 ─────────────────────────────────────────────────────────────
 function renderPins(list){

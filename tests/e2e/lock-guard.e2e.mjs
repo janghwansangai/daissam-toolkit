@@ -98,6 +98,33 @@ await send(panel, 'lock');
 for (const tab of tabs) await tab.waitFor(`${hosts}===1`, 10000, '재잠금');
 ok('다시 잠그면 잠금 화면이 다시 생긴다', true);
 
+// ④ 잠긴 동안 새 주소로 이동하면 잠금 안내가 뜨고, 풀면 ‘그 주소 그대로’ 돌아간다.
+//    (예전에는 안내 화면이 주소를 한 번 더 디코딩해 ?x=a%26b 가 ?x=a&b 로 바뀌었고, 홀로 있는 % 에서는 스크립트가 죽어 단추가 하나도 안 걸렸다.)
+{
+  const paths = ['/q?x=a%26b&y=%E2%9C%93', '/x?next=https%3A%2F%2Fexample.com%2F', '/p#frag%20x', '/한글/경로?이름=값', '/50%', '/a%E0%A4%A', '/%zz'];
+  const guarded = [];
+  for (const path of paths) guarded.push({path, page: await chrome.open(origin + path)});
+  await sleep(1500);
+  for (const {path, page} of guarded) {
+    const href = await page.eval('location.href').catch(() => '');
+    ok(`잠긴 동안 ${path} 로 가면 잠금 안내가 뜬다`, href.includes('locked.html'), href.slice(0, 80));
+    if (!/%(?![0-9A-Fa-f]{2})/.test(path)) continue;
+    const popupsBefore = await popups();
+    await page.eval(`document.getElementById('unlock').click()`); await sleep(1000);
+    ok(`홀로 있는 % 가 든 주소(${path})의 잠금 안내에서도 ‘PIN 확인하기’ 단추가 동작한다`, (await popups()) > popupsBefore);
+    ok(`홀로 있는 % 가 든 주소(${path})의 잠금 안내가 오류 없이 그려진다`, !chrome.events.some(e => e.method === 'Runtime.exceptionThrown' && e.sessionId === page.sessionId));
+  }
+  const unlocked = await send(panel, 'unlock', {pin: '246810'});
+  ok('안내 화면이 여럿 떠 있어도 해제된다', unlocked.ok === true && unlocked.data.locked === false);
+  for (const {path, page} of guarded) {
+    const want = new URL(origin + path).href;
+    let got = '';
+    for (let i = 0; i < 30 && got !== want; i++) { got = await page.eval('location.href').catch(() => ''); if (got !== want) await sleep(200); }
+    ok(`풀리면 ${path} 로 한 글자도 바뀌지 않고 돌아간다`, got === want, {want, got});
+  }
+  await send(panel, 'lock');
+  for (const tab of tabs) await tab.waitFor(`${hosts}===1`, 10000, '다시 잠금');
+}
 const exceptions = chrome.events.filter(e => e.method === 'Runtime.exceptionThrown').map(e => e.params.exceptionDetails.exception?.description || e.params.exceptionDetails.text);
 ok('처리되지 않은 예외가 없다', exceptions.length === 0, exceptions);
 console.log(failed ? `\n실패 ${failed}건` : '\n모두 통과');
