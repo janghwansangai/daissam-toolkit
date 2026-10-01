@@ -1,5 +1,6 @@
 import {seal,unseal,assertPin} from './lib/crypto.js';
-import {validateNote,checkQuota,noteKey,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE} from './lib/data.js';
+import {validateNote,checkQuota,noteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES} from './lib/data.js';
+import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,IMAGES_PER_NOTE,IMAGES_TOTAL} from './lib/backup.js';
 import {captureAndDeliver,targetTab,pickTabArea} from './capture-core.js';
 const RULE=701;
 const HOST='app.browsersheriff.presenter';
@@ -22,7 +23,6 @@ function controlMusic(action,text){
   const artist=document.querySelector('.ytmusic-player-bar .byline')?.textContent?.trim();
   return {now:title?(artist?title+' — '+artist.split('•')[0].trim():title):'재생 중인 곡 없음'};
 }
-const IMAGES_PER_NOTE=12, IMAGES_TOTAL=40;
 let clipPort=null;
 let serial=Promise.resolve();
 function exclusive(fn) { const p=serial.then(fn); serial=p.catch(()=>{}); return p; }
@@ -79,6 +79,15 @@ async function enforce() {
   return s;
 }
 async function lock() { await allow(false); return enforce(); }
+// 지금 프로필의 PIN 이 맞는지 본다. 틀리면 횟수를 세고, 다섯 번 틀리면 30초 쉬게 한다.
+// 잠금 해제와 ‘백업으로 잠금 PIN 바꾸기’가 같은 횟수를 나눠 쓴다 — 어느 쪽으로든 PIN 을 알아내려는 시도를 막는다.
+async function checkPin(pin) {
+  const {attempts={count:0,until:0}}=await chrome.storage.local.get('attempts');
+  if(Date.now()<attempts.until)throw new Error('잠시 후 다시 시도하세요.');
+  try {if((await unseal(pin,(await profile()).proof)).kind!=='profile')throw Error();}
+  catch {const count=attempts.count+1;await chrome.storage.local.set({attempts:{count,until:count>=5?Date.now()+30000:0}});throw new Error('PIN이 맞지 않습니다.');}
+  await chrome.storage.local.remove('attempts');
+}
 // 확장을 지울 때 Google 로그아웃 페이지를 여는 기능은 뺐다. setUninstallURL 이 여는 주소로는
 // Google 계정이 실제로 로그아웃되지 않는다(로그아웃은 단순 GET 으로 되지 않는다). 되지도 않는
 // 기능을 켜 두면 지켜 주는 줄 알고 믿게 되므로, 남겨 두는 편이 더 나쁘다. 이전에 켜 두었던
@@ -142,6 +151,80 @@ async function storeNote(rawId,rawTitle,text,pinned,tag) {
   return {id,revision:value.revision};
 }
 
+// 백업 파일의 내용을 이 컴퓨터에 합쳐 넣는다. 더하기만 하고 지우지 않는다(규칙은 lib/backup.js 에 있다).
+// 파일은 남이 만든 것일 수 있으므로 화면이 이미 걸렀어도 여기서 다시 검사한다. 잠금 PIN 을 바꾸는 일은 가장
+// 먼저 현재 PIN 을 확인하고, 틀리면 아무것도 바꾸지 않는다. 부분마다 따로 해서 한 부분이 실패해도 나머지는 넣는다.
+async function restoreBackup(m) {
+  const before=await state();
+  if(before.locked)throw Error('먼저 프로필 잠금을 해제하세요.');
+  const data=cleanBackup(m.payload);
+  const want={};for(const name of ['notes','bookmarks','settings','tools','lock'])want[name]=!!m.parts?.[name];
+  const withLock=want.lock&&!!data.lock;
+  if(!before.configured&&!withLock)throw Error('이 컴퓨터에는 아직 프로필이 없습니다. 잠금 PIN 이 든 백업을 고르거나, 먼저 PIN 을 만들어 주세요.');
+  if(withLock&&before.configured)await checkPin(m.pin);
+  const done={},problems=[];
+  const part=async(name,job)=>{try{done[name]=await job();}catch(error){problems.push(name+': '+error.message);}};
+  const settings=want.settings?data.settings:null;
+  if(withLock)await part('lock',async()=>{
+    const p=await profile();
+    await chrome.storage.local.set({profile:{name:String(settings?.name||p?.name||'내 프로필').slice(0,40),proof:data.lock.proof,idleMinutes:settings?.idleMinutes??p?.idleMinutes??0}});
+    if(!before.configured)await allow(true);
+    return true;
+  });
+  if(settings)await part('settings',async()=>{
+    const current=await chrome.storage.local.get(['captureOptions','recordOptions','profile']);
+    const next={};
+    for(const key of ['startLocked','lockOnAway','wheelZoom','uiFont','uiSize','uiTrack','presentKnobs'])if(settings[key]!==undefined)next[key]=settings[key];
+    // 캡처·녹화 옵션은 덮어쓰지 않고 합친다. 이 컴퓨터의 카메라·마이크 번호가 그대로 남는다.
+    if(settings.captureOptions)next.captureOptions={...(current.captureOptions||{}),...settings.captureOptions};
+    if(settings.recordOptions)next.recordOptions={...(current.recordOptions||{}),...settings.recordOptions};
+    if(current.profile&&!withLock)next.profile={...current.profile,name:settings.name||current.profile.name,idleMinutes:settings.idleMinutes??current.profile.idleMinutes};
+    await chrome.storage.local.set(next);
+    const minutes=(next.profile||current.profile)?.idleMinutes;
+    if(minutes)chrome.idle.setDetectionInterval(minutes*60);
+    if(data.hotkeys)await chrome.storage.sync.set({hotkeys:data.hotkeys});
+    return true;
+  });
+  if(want.tools&&data.tools)await part('tools',async()=>{
+    await chrome.storage.local.set(data.tools);
+    await scheduleBells();
+    return true;
+  });
+  if(want.notes&&data.notes.length)await part('notes',async()=>{
+    const [all,local]=await Promise.all([chrome.storage.sync.get(null),chrome.storage.local.get(['device','draftNotes','pendingNotes','noteImages'])]);
+    const plan=planNotes(noteGroups(mergedNotes(all,local)),data.notes);
+    const now=Date.now(),drafts={...(local.draftNotes||{})},pending={...(local.pendingNotes||{})};
+    let localOnly=0;
+    for(const note of plan.add){
+      const value={v:2,id:note.id,title:note.title,text:note.text,time:note.time||now,created:note.created||note.time||now,pinned:note.pinned,revision:crypto.randomUUID(),device:local.device};
+      drafts[note.id]=value;
+      // 5,500바이트를 넘는 글은 동기화되지 않고 이 컴퓨터에만 남는다(사이드바에서 쓸 때와 같다).
+      if(new TextEncoder().encode(note.text).length<=NOTE_BYTES)pending[note.id]=value; else localOnly++;
+    }
+    await chrome.storage.local.set({draftNotes:drafts,pendingNotes:pending,noteImages:mergeImages(local.noteImages||{},data.images,plan.target)});
+    await chrome.alarms.create('flush-notes',{delayInMinutes:0.5,periodInMinutes:1});
+    await flushNotes();
+    // Chrome 동기화는 분당 쓰기 횟수가 정해져 있어 많이 넣으면 일부가 기다린다. 1분마다 다시 올리므로 곧 올라간다.
+    const waiting=Object.keys((await chrome.storage.local.get('pendingNotes')).pendingNotes||{}).length;
+    return {added:plan.add.length,same:plan.same,copies:plan.copies,revived:plan.revived,localOnly,waiting};
+  });
+  if(want.bookmarks&&(data.bookmarks.length||Object.keys(data.vault).length))await part('bookmarks',async()=>{
+    const {device}=await chrome.storage.local.get('device');
+    const all=await chrome.storage.sync.get(null);
+    const plan=planMarks(all,device,data.bookmarks);
+    if(plan.value)await chrome.storage.sync.set({[plan.key]:plan.value});
+    // 예전 방식(PIN 으로 잠근) 보관함이 남아 있었다면 그대로 옮긴다. 사이드바가 PIN 을 물어 북마크로 바꿔 준다.
+    let vault=0;
+    for(const [key,blob] of Object.entries(data.vault)){
+      if(key in all)continue;
+      try{checkQuota(all,key,blob);await chrome.storage.sync.set({[key]:blob});all[key]=blob;vault++;}catch{}
+    }
+    return {added:plan.added,links:plan.links,folders:plan.folders,same:plan.same,left:plan.left,vault};
+  });
+  // 이름·잠금 옵션이 바뀌었을 수 있다. 상태를 한 번 올려 열려 있는 모든 창이 새 값을 읽게 한다.
+  const next=(withLock||settings)?await enforce():await state();
+  return {done,problems,skipped:data.skipped,state:next};
+}
 // The helper app watches the clipboard only while this port is open, so the toggle is the whole switch.
 async function clipStatus() {
   const {clipboardImport=false,clipError=''}=await chrome.storage.local.get(['clipboardImport','clipError']);
@@ -489,13 +572,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       await chrome.storage.local.set({profile:{name:String(m.name||'내 프로필').slice(0,40),proof:await seal(m.pin,{kind:'profile'}),idleMinutes:0}});
       await allow(true);return enforce();
     }
-    if(m.type==='unlock') {
-      const {attempts={count:0,until:0}}=await chrome.storage.local.get('attempts');
-      if(Date.now()<attempts.until)throw new Error('잠시 후 다시 시도하세요.');
-      try {if((await unseal(m.pin,(await profile()).proof)).kind!=='profile')throw Error();}
-      catch {const count=attempts.count+1;await chrome.storage.local.set({attempts:{count,until:count>=5?Date.now()+30000:0}});throw new Error('PIN이 맞지 않습니다.');}
-      await chrome.storage.local.remove('attempts');await allow(true);return enforce();
-    }
+    if(m.type==='unlock') { await checkPin(m.pin);await allow(true);return enforce(); }
     if(m.type==='clip-state')return clipStatus();
     if(m.type==='presenter-command'){
       // 한 번짜리 호출이라 도우미가 뜨고 명령을 넘긴 뒤 바로 끝난다.
@@ -529,6 +606,8 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       return {sent:true};
     }
     if(m.type==='lock')return lock();
+    // 잠금 상태 확인은 함수 안에서 한다. 처음 쓰는 컴퓨터(아직 프로필이 없음)에서도 백업으로 시작할 수 있어야 한다.
+    if(m.type==='backup-restore')return restoreBackup(m);
     if(m.type==='close-window'){const w=await chrome.windows.getCurrent();await chrome.windows.remove(w.id);return true;}
     if((await state()).locked || !(await state()).configured)throw new Error('먼저 프로필 잠금을 해제하세요.');
     // 캡처: mode 는 visible·area·full·delay·ocr. after 를 주면 설정 대신 그것을 쓴다(도크는 'both').

@@ -120,3 +120,11 @@
 - [Windows 전체 화면 Magnification API](https://learn.microsoft.com/en-us/windows/win32/api/magnification/nf-magnification-magsetfullscreentransform)
 - [Snipaste 공식 소개 · 기능과 기본 단축키](https://www.snipaste.com/)
 - [SCScreenshotManager (macOS 14+)](https://developer.apple.com/documentation/screencapturekit/scscreenshotmanager)
+
+## 전체 백업 · 복원 (2026-10-01 Claude, v0.39.0)
+- 사용자 요청: 기록·설정 등 모두를 백업하고 다른 곳(다른 Google 계정 포함)에서 복원. 서버를 두지 않는 원칙을 지켜 **파일 하나**로 한다.
+- 담는 것: 메모(그림 썸네일 포함) · 북마크와 폴더 · 설정(글꼴·캡처/녹화 옵션·발표 조절값·단축키·잠금 옵션) · 수업 도구(종 알람·알람 소리·모둠 점수) · 잠금 PIN(암호 백업만).
+- **설계 결정(사용자 확인 전):** 잠금 PIN 은 암호를 건 백업에만 담는다. 암호 없는 백업은 PIN 을 담지 않는다. 사용자는 "비밀번호를 빼는 쪽 / 암호화해 넣는 쪽" 물음에 답하지 않고 "모두"라고만 해서 둘 다 지원했다. 바꾸고 싶으면 알려 달라고 안내함.
+- 이미지: 확장은 바탕화면 캡처이미지 폴더를 읽을 수 없어 **썸네일만** 담는다(앞선 확정 "이미지는 로컬 전용" 유지 — 백업 파일은 사용자가 직접 만들고 옮기는 것이며 동기화·전송은 없다).
+- 이 컴퓨터에만 뜻이 있는 값(기기 번호·도크 자리·카메라/마이크 번호·클립보드 도우미 토글·타이머)은 담지 않는다.
+- 복원은 더하기만 한다(있는 것을 지우거나 덮어쓰지 않음). 같은 메모의 내용이 다르면 ‘(백업)’ 사본.

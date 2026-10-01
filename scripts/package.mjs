@@ -59,6 +59,31 @@ with zipfile.ZipFile('${extensionZip}','w',zipfile.ZIP_DEFLATED) as z:
  for src,name in extra: z.write(src,name,compress_type=zipfile.ZIP_STORED)
 `,JSON.stringify(inside)]);
 artifacts.push(extensionZip);
+
+// ── 2-1. 크롬 웹 스토어(비공개)에 올리는 ZIP ─────────────────────────────
+// 스토어는 manifest 의 key 를 받지 않고(ID 는 스토어가 정한다), 실행 파일이 든 ZIP 도 받지 않는다.
+// 그래서 key 를 뺀 manifest 와 확장 파일만 담는다. 발표 앱은 담지 않는다(스토어 판은 앱을 릴리스에서 받는다).
+const storeZip=`dist/release/browser-sheriff-store-${version}.zip`;
+execFileSync('python3',['-c',`import pathlib,zipfile,json
+root=pathlib.Path('extension')
+manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+manifest.pop('key',None)
+junk={'.DS_Store','Thumbs.db','desktop.ini','.gitignore','.gitkeep'}
+with zipfile.ZipFile('${storeZip}','w',zipfile.ZIP_DEFLATED) as z:
+ for p in sorted(root.rglob('*')):
+  if not p.is_file(): continue
+  if p.name in junk or p.name.startswith('._') or p.suffix in {'.swp','.bak','.orig'}: continue
+  name=str(p.relative_to(root))
+  if name=='manifest.json': z.writestr(name,json.dumps(manifest,ensure_ascii=False,indent=2)+chr(10))
+  else: z.write(p,name)
+`]);
+// 올리기 전에 한 번 더 본다. 이 둘 중 하나라도 어긋나면 스토어가 올리는 순간 거부한다.
+{
+  const listing=execFileSync('unzip',['-Z1',storeZip],{encoding:'utf8'}).split('\n').filter(Boolean);
+  if(listing.some(name=>name.startsWith('presenter/')))throw new Error('스토어용 ZIP 에 발표 앱이 들어 있습니다.');
+  if(JSON.parse(execFileSync('unzip',['-p',storeZip,'manifest.json'],{encoding:'utf8'})).key!==undefined)throw new Error('스토어용 ZIP 의 manifest 에 key 가 남아 있습니다.');
+}
+artifacts.push(storeZip);
 if(existsSync(macZip))artifacts.push(macZip);
 if(existsSync(winZip))artifacts.push(winZip);
 

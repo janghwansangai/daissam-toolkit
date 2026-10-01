@@ -133,3 +133,21 @@
 @media(max-width:329px){.dockbtn{width:20px;height:20px}.dockbtn svg{width:11px;height:11px}.dock{gap:1px}.dock-main,.dock-side{gap:1px}.dock-cap{gap:1px;padding:0 2px}}
 .busy-cap{opacity:.6;pointer-events:none}
 body.capturing .cap-tile,body.capturing .cap-row,body.capturing #dock-cap-area,body.capturing #dock-cap-full{opacity:.55;pointer-events:none}
+/* 전체 백업 · 복원 */
+.backup{border:1px solid var(--line);border-radius:14px;background:#fff;padding:12px 14px 12px;margin:18px 0 8px}
+.backup h3{font-size:1rem;letter-spacing:-.4px;margin:0 0 2px}
+.backup label small{font-weight:400;color:#7d8877;margin-left:4px}
+.backup .bk-line{height:1px;background:var(--line);margin:16px 0 8px}
+.bk-title{font-size:0.8571rem;font-weight:var(--w-semi);margin:12px 0 4px;line-height:1.5}
+.bk-title small{display:block;font-weight:400;color:#7d8877;font-size:0.7857rem}
+.bk-list{list-style:none;margin:6px 0;padding:0;display:grid;gap:5px}
+.bk-list li{border:1px solid #e6eadc;border-radius:10px;padding:8px 10px;background:#fbfdf4}
+.bk-list label{display:flex;align-items:flex-start;gap:9px;margin:0;font-size:0.8571rem;font-weight:var(--w-semi);cursor:pointer}
+.bk-list label input{width:auto;margin:3px 0 0;padding:0;flex:none}
+.bk-list li.off{opacity:.5}
+.bk-list small{display:block;font-weight:400;color:#7d8877;font-size:0.7857rem;line-height:1.5}
+.bk-row{display:flex;gap:8px;margin:12px 0 0}
+.bk-row .primary{flex:1;padding:12px 14px}
+.bk-row .quiet{flex:none}
+#gate-restore{margin-top:14px}
+#gate-restore-box{margin-top:6px}

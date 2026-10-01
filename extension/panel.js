@@ -2,8 +2,11 @@ import {unseal,assertPin} from './lib/crypto.js';
 import {noteList,noteKey,stampTitle,particle,checkQuota,safeURL,mergeBookmarks,editBookmarks} from './lib/data.js';
 import {HOT_DEFAULTS,HOT_ORDER,HOT_LABEL,hotShow,hotFromEvent,hotCheck,hotText,hotClean} from './lib/keys.js';
 import {deliver} from './lib/shots.js';
+import {collectBackup,sealBackup,plainBackup,openBackup,describeBackup,checkPassphrase,MAX_FILE_BYTES} from './lib/backup.js';
 const $=id=>document.getElementById(id);
 let profileState,device,editingNote=false,currentNoteId=null,unsavedNote=false,myRevision='',markFolder='',vaultItems=[],vaultEpoch=0,vaultBusy=false;
+// 백업 복원 화면이 들고 있는 것. 잠금 상태에서는 비운다(백업 내용이 메모리에 남아 있지 않게).
+let openedBackup=null,backupFile=null,gateBackupFile=null;
 // 이 창이 쓴 글인지 가리는 표. 같은 기기의 다른 창이 쓴 것만 글상자를 갈아끼운다.
 const windowTag=crypto.randomUUID().slice(0,8);
 // 한글·일본어·중국어는 IME 가 한 글자를 조합하는 동안 계속 입력이 온다. 그 사이에
@@ -28,12 +31,13 @@ function download(name,data,type){const url=URL.createObjectURL(data instanceof 
 async function renderState(s){
   if(profileState&&s.revision<profileState.revision)return;
   profileState=s;$('workspace').hidden=!s.configured||s.locked;$('gate').hidden=s.configured&&!s.locked;
+  $('gate-restore').hidden=s.configured;
   $('name-label').hidden=s.configured;$('confirm-label').hidden=s.configured;$('profile-confirm').required=!s.configured;
   $('gate-title').textContent=s.configured?s.name+'입니다':'내 공간의 작은 문지기';
   $('gate-description').textContent=s.configured?'계속 사용하려면 이 기기의 프로필 PIN을 입력하세요.':'프로필 이름과 PIN을 정해 주세요. 다른 사람이 실수로 내 공간을 사용하는 것을 막아 줍니다.';
   $('gate-submit').textContent=s.configured?'내 프로필 사용하기 →':'내 공간 만들기 →';
   $('owner').textContent=s.name;$('settings-name').value=s.name;$('idle').value=String(s.idleMinutes);$('start-locked').checked=s.startLocked!==false;$('lock-away').checked=s.lockOnAway!==false;$('wheel-zoom').checked=s.wheelZoom!==false;
-  if(s.locked||!s.configured){closeVault();$('note').value='';$('note-title').value='';$('note-tabs').replaceChildren();$('note-versions').replaceChildren();$('note-images').replaceChildren();editingNote=false;currentNoteId=null;unsavedNote=false;}
+  if(s.locked||!s.configured){clearBackupPlan();backupFile=null;closeVault();$('note').value='';$('note-title').value='';$('note-tabs').replaceChildren();$('note-versions').replaceChildren();$('note-images').replaceChildren();editingNote=false;currentNoteId=null;unsavedNote=false;}
   else {await loadNotes();await loadClip();await loadMarks();}
 }
 // 잠금 해제만 하려고 띄운 창은 할 일이 끝나면 닫는다. 사이드바가 본 화면이다.
@@ -691,6 +695,145 @@ event('vault-import','change',async()=>{
   if(!edits.length)throw Error('가져올 항목이 없습니다.');
   await commitMarks(edits);
   notice(edits.length+'개를 합쳤습니다.');
+});
+// ── 전체 백업 · 복원 ────────────────────────────────────────────────────
+// 파일을 만들고 여는 일(암호 포함)은 이 창이 하고, 저장소에 쓰는 일은 서비스 워커(backup-restore)가 한다.
+// 규칙은 lib/backup.js 에 있다: 더하기만 하고 지우지 않으며, 잠금 PIN 은 암호를 건 파일에만 담긴다.
+const ymd=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const sizeText=bytes=>bytes>=1048576?(bytes/1048576).toFixed(1)+'MB':Math.max(1,Math.round(bytes/1024))+'KB';
+function showSeal(){const sealed=$('bk-seal').checked;$('bk-seal-box').hidden=!sealed;$('bk-plain-hint').hidden=sealed;}
+event('bk-seal','change',showSeal);showSeal();
+event('bk-make','click',async()=>{
+  const sealed=$('bk-seal').checked,pass=$('bk-pass').value;
+  if(sealed){checkPassphrase(pass);if(pass!==$('bk-pass2').value)throw Error('두 암호가 같지 않습니다.');}
+  const button=$('bk-make'),was=button.textContent;button.disabled=true;button.textContent='만드는 중…';
+  try{
+    const [sync,local]=await Promise.all([chrome.storage.sync.get(null),chrome.storage.local.get(null)]);
+    const payload=collectBackup({sync,local,version:chrome.runtime.getManifest().version,os:THIS_OS,includeLock:sealed});
+    const text=sealed?await sealBackup(payload,pass):plainBackup(payload);
+    // 만든 파일을 바로 다시 열어 본다. 급할 때 열리지 않는 백업이면 없는 것만 못하다.
+    const check=(await openBackup(text,sealed?pass:undefined)).payload;
+    if(check.notes.length!==payload.notes.length||check.bookmarks.length!==payload.bookmarks.length)throw Error('만든 백업을 다시 열어 보니 내용이 맞지 않아 저장하지 않았습니다.');
+    download(`다있쌤-백업-${ymd()}.json`,text,'application/json');
+    $('bk-pass').value='';$('bk-pass2').value='';
+    const sum=describeBackup(payload);
+    notice(`백업 파일을 내려받았습니다 (${sizeText(text.length)}).\n메모 ${sum.notes}개 · 북마크 ${sum.links}개`+(sealed?' · 잠금 PIN 포함\n암호를 잊으면 열 수 없으니 꼭 적어 두세요.':'\n암호 없는 파일이라 잠금 PIN은 담지 않았습니다.'));
+  } finally { button.disabled=false;button.textContent=was; }
+});
+function clearBackupPlan(){
+  openedBackup=null;
+  for(const id of ['bk-open','bk-plan','bk-lock-pin'])$(id).hidden=true;
+  $('bk-open-pass').value='';$('bk-pin').value='';$('bk-list').replaceChildren();
+}
+event('bk-cancel','click',()=>{clearBackupPlan();backupFile=null;$('bk-file').value='';});
+async function readBackup(file,pass){
+  if(!file)throw Error('백업 파일을 고르세요.');
+  if(file.size>MAX_FILE_BYTES)throw Error('백업 파일이 너무 큽니다.');
+  return openBackup(await file.text(),pass);
+}
+const needsPass=error=>error?.code==='NEEDS_PASSPHRASE';
+event('bk-file','change',async()=>{
+  clearBackupPlan();backupFile=$('bk-file').files[0]||null;
+  if(!backupFile)return;
+  try{showBackupPlan(await readBackup(backupFile));}
+  catch(error){if(!needsPass(error))throw error;$('bk-open').hidden=false;$('bk-open-pass').focus();notice('이 백업은 암호로 잠겨 있습니다. 암호를 입력하세요.');}
+});
+event('bk-open','submit',async e=>{
+  e.preventDefault();
+  const result=await readBackup(backupFile,$('bk-open-pass').value);
+  $('bk-open-pass').value='';$('bk-open').hidden=true;
+  showBackupPlan(result);
+});
+function showBackupPlan(result){
+  openedBackup=result;
+  const payload=result.payload,sum=describeBackup(payload),made=sum.made;
+  const detail=document.createElement('small');
+  detail.textContent=[made.profile,made.at?new Date(made.at).toLocaleString()+' 에 만듦':'',made.os==='mac'?'맥':made.os==='win'?'윈도우':'',result.encrypted?'암호로 잠긴 백업':'암호 없는 백업'].filter(Boolean).join(' · ');
+  $('bk-title').replaceChildren(document.createTextNode(backupFile?.name||'백업 파일'),detail);
+  const rows=[
+    ['notes','메모',sum.notes?`${sum.notes}개`+(sum.images?` · 그림 ${sum.images}장(작은 미리보기)`:''):'',sum.notes>0],
+    ['bookmarks','북마크',(sum.links||sum.folders)?`북마크 ${sum.links}개 · 폴더 ${sum.folders}개`+(sum.vault?' · 예전 보관함':''):sum.vault?'예전 보관함':'',sum.links+sum.folders+sum.vault>0],
+    ['settings','설정','화면 글꼴 · 캡처·녹화 옵션 · 발표 조절값 · 단축키 · 잠금 옵션',sum.settings||sum.hotkeys],
+    ['tools','수업 도구','종 알람 · 알람 소리 · 모둠 점수',sum.tools],
+    ['lock','잠금 PIN',sum.lock?(profileState?.configured?'이 컴퓨터의 PIN을 백업의 PIN으로 바꿉니다':'새 PIN을 정하지 않고 백업의 PIN을 씁니다'):'이 백업에는 담겨 있지 않습니다'+(result.encrypted?'':' (암호 없는 백업에는 PIN이 담기지 않습니다)'),sum.lock]
+  ];
+  const list=$('bk-list');list.replaceChildren();
+  for(const [part,name,about,has] of rows){
+    const item=document.createElement('li');if(!has)item.className='off';
+    const label=document.createElement('label'),box=document.createElement('input');
+    box.type='checkbox';box.dataset.part=part;box.disabled=!has;
+    // 이미 PIN 이 있는 컴퓨터에서는 PIN 교체를 기본으로 켜지 않는다. 처음 쓰는 컴퓨터에서는 켠다.
+    box.checked=has&&(part!=='lock'||!profileState?.configured);
+    const text=document.createElement('span'),small=document.createElement('small');
+    small.textContent=about;text.append(document.createTextNode(name),small);
+    label.append(box,text);item.append(label);list.append(item);
+  }
+  if(sum.skipped){const extra=document.createElement('li');extra.className='off';extra.textContent=`형식이 맞지 않는 항목 ${sum.skipped}개는 건너뜁니다.`;list.append(extra);}
+  list.onchange=showLockPin;showLockPin();
+  $('bk-plan').hidden=false;
+}
+// 이미 PIN 이 있는 컴퓨터에서 PIN 을 바꾸려면 지금 PIN 을 한 번 더 확인한다.
+function showLockPin(){
+  const box=$('bk-list').querySelector('input[data-part=lock]');
+  $('bk-lock-pin').hidden=!(box&&box.checked&&!box.disabled&&profileState?.configured);
+}
+function restoreText(r){
+  const lines=[],d=r.done||{};
+  if(d.lock)lines.push('잠금 PIN을 백업의 것으로 바꿨습니다.');
+  if(d.settings)lines.push('설정을 불러왔습니다.');
+  if(d.tools)lines.push('수업 도구를 불러왔습니다.');
+  if(d.notes){
+    const n=d.notes,bits=[];
+    if(n.copies)bits.push(`내용이 달라 ‘(백업)’ 사본 ${n.copies}개`);
+    if(n.revived)bits.push(`지웠던 메모 ${n.revived}개 되살림`);
+    lines.push(n.added?`메모 ${n.added}개를 더했습니다`+(bits.length?' ('+bits.join(' · ')+')':'')+'.':'메모는 모두 이미 있어서 더한 것이 없습니다.');
+    if(n.localOnly)lines.push(`긴 메모 ${n.localOnly}개는 동기화되지 않고 이 컴퓨터에만 있습니다.`);
+    if(n.waiting)lines.push(`메모 ${n.waiting}개는 Chrome 동기화를 기다립니다. 1분마다 다시 올리니 곧 올라갑니다.`);
+  }
+  if(d.bookmarks){
+    const b=d.bookmarks;
+    lines.push(b.added?`북마크 ${b.links}개`+(b.folders?` · 폴더 ${b.folders}개`:'')+'를 더했습니다.':'북마크는 모두 이미 있어서 더한 것이 없습니다.');
+    if(b.left)lines.push(`북마크 ${b.left}개는 동기화 보관함(한 칸 약 8KB)이 가득 차 넣지 못했습니다. 안 쓰는 북마크를 정리한 뒤 다시 불러오세요.`);
+    if(b.vault)lines.push('예전 방식 보관함이 있어 북마크 탭에서 옮기기를 안내합니다.');
+  }
+  for(const problem of r.problems||[])lines.push('⚠ 가져오지 못함 — '+problem);
+  if(r.skipped)lines.push(`형식이 맞지 않는 항목 ${r.skipped}개는 건너뛰었습니다.`);
+  return lines.join('\n')||'가져온 것이 없습니다.';
+}
+// 저장소가 통째로 바뀌었을 수 있다. 화면을 다시 불러 모든 칸이 새 값을 읽게 하고, 결과는 다시 뜬 화면에서 알린다.
+async function runRestore(payload,parts,pin){
+  const result=await api('backup-restore',{payload,parts,pin});
+  try{sessionStorage.setItem('daissam-restored',restoreText(result));}catch{}
+  location.reload();
+}
+event('bk-go','click',async()=>{
+  if(!openedBackup)return;
+  const parts={};
+  for(const box of $('bk-list').querySelectorAll('input[data-part]'))parts[box.dataset.part]=box.checked&&!box.disabled;
+  if(!Object.values(parts).some(Boolean))throw Error('복원할 항목을 하나 이상 고르세요.');
+  const pin=$('bk-pin').value;
+  if(parts.lock&&profileState?.configured){assertPin(pin);}
+  const button=$('bk-go'),was=button.textContent;button.disabled=true;button.textContent='복원하는 중…';
+  try{await runRestore(openedBackup.payload,parts,pin);}
+  finally{button.disabled=false;button.textContent=was;}
+});
+// 처음 쓰는 컴퓨터(프로필 없음)에서 백업으로 시작한다. 잠금 PIN 이 든 백업이라야 새 PIN 없이 시작할 수 있다.
+event('gate-restore-open','click',()=>{$('gate-restore-box').hidden=!$('gate-restore-box').hidden;});
+async function gateRestore(pass){
+  const result=await readBackup(gateBackupFile,pass);
+  if(!result.payload.lock)throw Error('이 백업에는 잠금 PIN이 들어 있지 않습니다.\n위에서 PIN을 먼저 만든 뒤, 설정 → 전체 백업 · 복원에서 불러오세요.');
+  await runRestore(result.payload,{notes:true,bookmarks:true,settings:true,tools:true,lock:true},'');
+}
+event('gate-file','change',async()=>{
+  gateBackupFile=$('gate-file').files[0]||null;$('gate-restore-form').hidden=true;
+  if(!gateBackupFile)return;
+  try{await gateRestore();}
+  catch(error){if(!needsPass(error))throw error;$('gate-restore-form').hidden=false;$('gate-restore-pass').focus();notice('이 백업은 암호로 잠겨 있습니다. 암호를 입력하세요.');}
+});
+event('gate-restore-form','submit',async e=>{
+  e.preventDefault();
+  const pass=$('gate-restore-pass').value;$('gate-restore-pass').value='';
+  await gateRestore(pass);
 });
 chrome.runtime.onMessage.addListener(m=>{if(m.type==='state-changed')renderState(m.state).catch(e=>notice(e.message));});
 chrome.storage.onChanged.addListener((changes,area)=>{
@@ -1430,3 +1573,5 @@ async function loadTools(){
   watchRun();watchLapList();
 }
 loadTools().catch(()=>{});
+// 백업을 복원하면 화면이 다시 뜬다. 결과는 여기서 알린다(로딩 중 다른 안내가 덮지 않게 잠시 뒤에).
+try{const said=sessionStorage.getItem('daissam-restored');if(said){sessionStorage.removeItem('daissam-restored');setTimeout(()=>notice(said),700);}}catch{}
