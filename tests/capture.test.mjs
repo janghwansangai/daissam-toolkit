@@ -453,3 +453,28 @@ test('녹화 표시기는 발표 도우미가 그리고, 화면 녹화에서 빠
   assert.match(swift, /isMovableByWindowBackground=true/);  // 끌어서 옮기기
   assert.match(cs, /WM_NCLBUTTONDOWN|0xA1/);
 });
+
+// 앱이 건넨 말을 사이드바가 보여 준다(윈도우는 알림이 꺼진 컴퓨터에서 트레이 풍선이 안 보인다 — 실기기 확인).
+// 1분 안의 새 소식만 한 번. 도우미가 notice 를 안 실으면(맥 · 옛 앱) 아무 일도 하지 않는다.
+test('사이드바는 앱이 건넨 새 소식만 한 번 보여 준다', async () => {
+  const {runInNewContext} = await import('node:vm');
+  const source = readFileSync('extension/panel.js', 'utf8');
+  const start = source.indexOf("let appNoticeSeen='';");
+  const end = source.indexOf('async function refreshPresenter()', start);
+  assert.ok(start > 0 && end > start, 'showAppNotice 가 있다');
+  assert.match(source, /showFocus\(\);\n  showAppNotice\(data\);\n\}/, '상태를 받을 때마다 본다');
+  const shown = [];
+  const now = 1_800_000_000_000;
+  const box = {Date: {now: () => now}, Number, notice: text => shown.push(text)};
+  runInNewContext(source.slice(start, end), box);
+  const show = data => runInNewContext('showAppNotice(data)', Object.assign(box, {data}));
+  show({presenting: false});                                         // 맥 · 옛 앱: notice 없음
+  show({notice: '저장도 복사도 하지 못했습니다', noticeAt: '22:40:05'});   // 시각을 알 수 없으면 보이지 않는다
+  show({notice: '오래된 소식', noticeAtMs: now - 61_000});              // 1분이 지난 것
+  assert.deepEqual(shown, []);
+  show({notice: '저장도 복사도 하지 못했습니다', noticeAtMs: now - 2_000});
+  show({notice: '저장도 복사도 하지 못했습니다', noticeAtMs: now - 2_000}); // 같은 소식을 다시 받아도 한 번
+  show({notice: '저장도 복사도 하지 못했습니다', noticeAtMs: now - 500});   // 같은 말이라도 새로 났으면 다시
+  show({notice: '  ', noticeAtMs: now});
+  assert.deepEqual(shown, ['발표 도우미: 저장도 복사도 하지 못했습니다', '발표 도우미: 저장도 복사도 하지 못했습니다']);
+});

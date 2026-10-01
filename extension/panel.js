@@ -518,6 +518,20 @@ function applyPresenterState(data){
     if(met)wish=null;
   }
   showFocus();
+  showAppNotice(data);
+}
+// 앱이 사용자에게 건넨 말(저장 실패 · 디스플레이가 바뀌어 발표를 끝냄 등). 윈도우는 알림이 꺼진
+// 컴퓨터에서 트레이 풍선이 아무것도 보여 주지 않아(실기기 확인) 그 말이 통째로 사라졌다.
+// 도우미가 notice · noticeAtMs 를 실어 주면 1분 안의 새 소식만 한 번 보여 준다. 없으면 아무 일도 안 한다.
+let appNoticeSeen='';
+function showAppNotice(data){
+  const text=typeof data.notice==='string'?data.notice.trim().slice(0,160):'';
+  const at=Number(data.noticeAtMs);
+  if(!text||!Number.isFinite(at)||at<=0)return;
+  const mark=at+'|'+text;
+  if(mark===appNoticeSeen||Math.abs(Date.now()-at)>60000)return;
+  appNoticeSeen=mark;
+  notice('발표 도우미: '+text);
 }
 async function refreshPresenter(){
   try{applyPresenterState(await api('presenter-command',{action:'state'}));}
