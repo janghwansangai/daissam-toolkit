@@ -1,7 +1,8 @@
 # 현재 인수인계
 
 - 목표: 브라우저 보완관 v0.1 사용자 피드백 수정·기능 추가. 완료 조건은 PROJECT의 "완료 조건과 제한".
-- 상태/활성 편집자: v0.39.4(윈도우 세션 PR #2 반영 — 윈도우 도우미 확장 ID 둘 허용 · 충돌 방어 · 통로 지연 295ms→3ms · GDI 누수) 합침·빌드·시험·포장(2026-10-01). 맥 Claude. **윈도우 앱이 바뀌었다**(웹 스토어 판 지원) — 윈도우는 새 `Presenter.exe` 를 설치해야 한다. 맥 앱은 코드 그대로(버전 표기만 0.39.4, 고정 인증서로 다시 서명·설치).
+- 상태/활성 편집자: v0.39.5(윈도우 세션 PR #3 반영 — v0.39.4 윈도우 실기기 확인 · `error.log` 크기 한도) 합침·빌드·시험·포장(2026-10-01). 맥 Claude. 윈도우 앱이 바뀌었다(오류 기록 한도) — 윈도우는 새 `Presenter.exe` 설치. 맥 앱은 코드 그대로(버전 표기만 0.39.5, 고정 인증서 서명·설치).
+- (이전) v0.39.4(윈도우 세션 PR #2 반영 — 윈도우 도우미 확장 ID 둘 허용 · 충돌 방어 · 통로 지연 295ms→3ms · GDI 누수) 합침·빌드·시험·포장(2026-10-01). 맥 Claude. **윈도우 앱이 바뀌었다**(웹 스토어 판 지원) — 윈도우는 새 `Presenter.exe` 를 설치해야 한다. 맥 앱은 코드 그대로(버전 표기만 0.39.4, 고정 인증서로 다시 서명·설치).
 - v0.39.4 규칙 ① **버전은 맥 세션이 네 곳을 함께 올린다**: `package.json` · `extension/manifest.json` · `presenter/macos/build.sh`(CFBundleShortVersionString · CFBundleVersion) · **`presenter/windows/Presenter.csproj`(Version · FileVersion)**. csproj 가 0.37.0 에 멈춰 있어 윈도우 `Check.cmd` · 트레이 · 설치 알림이 옛 번호를 보였다.
 - v0.39.4 규칙 ② **윈도우 실행 파일은 맥에서도 만든다**: `bash presenter/windows/build.sh`(`~/.dotnet` 의 .NET 8 SDK, 교차 빌드 몇 초). 실행은 못 하므로 윈도우 실기기 확인은 윈도우 세션 몫이다. `Presenter.cs` 가 exe 보다 새로우면(내용이 같아도 파일 시각만 바뀌어도) `npm run package` 가 멈춘다 — 다시 빌드한다.
 - v0.39.4 규칙 ③ `tests/host-pipe.test.mjs` 는 **맥과 윈도우 둘 다** 돈다(win32 는 `dist/windows/Presenter.exe`). 두 확장 ID 는 답하고 모르는 ID 에는 0바이트여야 한다. 확장 ID 를 바꾸면 이 시험이 막는다.
