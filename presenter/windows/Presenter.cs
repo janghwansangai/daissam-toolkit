@@ -1842,6 +1842,8 @@ namespace BrowserSheriff {
         File.WriteAllText(StateFile,JsonSerializer.Serialize(new{
           presenting=active,focus=focus,pins=pins.Count,through=through,hotkeys=active?4:0,keys=Keys2.Text(combos),badge=badge!=null&&!badge.IsDisposed,
           camera=cameraView!=null&&!cameraView.IsDisposed&&cameraView.Visible,
+          // 앱이 마지막으로 건넨 말. 트레이 풍선이 윈도우 설정 때문에 안 보일 수 있어 여기에도 둔다.
+          notice=notice,noticeAt=noticeAt,
           version=Presenter.Ver,started=DateTime.Now.ToString("HH:mm:ss")}),Encoding.UTF8);
       }catch{}
     }
@@ -2196,11 +2198,24 @@ namespace BrowserSheriff {
       else if(copied)Tell("클립보드에 복사했습니다 · 폴더에 저장하지 못했습니다");
       else Tell("저장도 복사도 하지 못했습니다");
     }
+    // 사용자에게 한 마디 건네는 유일한 자리다. 그런데 트레이 풍선은 윈도우 알림 설정이
+    // 꺼져 있으면 아무것도 보여 주지 않는다 — 이 기기에서 실제로 그랬다(HKCU\SOFTWARE\
+    // Microsoft\Windows\CurrentVersion\PushNotifications\ToastEnabled=0, 사용자도 못 봄).
+    // 그러면 '저장도 복사도 하지 못했습니다' 같은 소식까지 통째로 사라진다. 그래서 세 갈래로 둔다.
+    //   ① 풍선 — 설정이 켜져 있을 때.
+    //   ② 트레이 글씨 — 설정과 무관하게 아이콘에 올려 두면 보인다(63글자 한도).
+    //   ③ state.json 의 notice — 사이드바가 읽어 보여 줄 수 있다(확장 쪽 반영 필요).
+    string notice="";string noticeAt="";
     void Tell(string text){
+      notice=text;noticeAt=DateTime.Now.ToString("HH:mm:ss",CultureInfo.InvariantCulture);
       try{
-        if(tray==null)return;
-        tray.BalloonTipTitle="다있쌤 발표 도우미";tray.BalloonTipText=text;tray.ShowBalloonTip(2500);
+        if(tray!=null){
+          string tip="다있쌤 · "+text;
+          tray.Text=tip.Length>62?tip.Substring(0,62):tip;
+          tray.BalloonTipTitle="다있쌤 발표 도우미";tray.BalloonTipText=text;tray.ShowBalloonTip(2500);
+        }
       }catch{}
+      PublishState();
     }
     void EndSnip(){
       snipSave=false;
