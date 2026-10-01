@@ -1,7 +1,11 @@
 # 현재 인수인계
 
 - 목표: 브라우저 보완관 v0.1 사용자 피드백 수정·기능 추가. 완료 조건은 PROJECT의 "완료 조건과 제한".
-- 상태/활성 편집자: v0.39.3(안정성 점검: 실제 충돌 · 오래된 Chrome · 잠금 안내 화면) 반영·시험·포장(2026-10-02). 맥 Claude. **맥 앱이 바뀌었다**(호스트 충돌 수정) — 설치 필요. 윈도우 앱은 그대로.
+- 상태/활성 편집자: v0.39.4(윈도우 세션 PR #2 반영 — 윈도우 도우미 확장 ID 둘 허용 · 충돌 방어 · 통로 지연 295ms→3ms · GDI 누수) 합침·빌드·시험·포장(2026-10-01). 맥 Claude. **윈도우 앱이 바뀌었다**(웹 스토어 판 지원) — 윈도우는 새 `Presenter.exe` 를 설치해야 한다. 맥 앱은 코드 그대로(버전 표기만 0.39.4, 고정 인증서로 다시 서명·설치).
+- v0.39.4 규칙 ① **버전은 맥 세션이 네 곳을 함께 올린다**: `package.json` · `extension/manifest.json` · `presenter/macos/build.sh`(CFBundleShortVersionString · CFBundleVersion) · **`presenter/windows/Presenter.csproj`(Version · FileVersion)**. csproj 가 0.37.0 에 멈춰 있어 윈도우 `Check.cmd` · 트레이 · 설치 알림이 옛 번호를 보였다.
+- v0.39.4 규칙 ② **윈도우 실행 파일은 맥에서도 만든다**: `bash presenter/windows/build.sh`(`~/.dotnet` 의 .NET 8 SDK, 교차 빌드 몇 초). 실행은 못 하므로 윈도우 실기기 확인은 윈도우 세션 몫이다. `Presenter.cs` 가 exe 보다 새로우면(내용이 같아도 파일 시각만 바뀌어도) `npm run package` 가 멈춘다 — 다시 빌드한다.
+- v0.39.4 규칙 ③ `tests/host-pipe.test.mjs` 는 **맥과 윈도우 둘 다** 돈다(win32 는 `dist/windows/Presenter.exe`). 두 확장 ID 는 답하고 모르는 ID 에는 0바이트여야 한다. 확장 ID 를 바꾸면 이 시험이 막는다.
+- (이전) v0.39.3(안정성 점검: 실제 충돌 · 오래된 Chrome · 잠금 안내 화면) 반영·시험·포장(2026-10-01). 맥 Claude. **맥 앱이 바뀌었다**(호스트 충돌 수정) — 설치 필요. 윈도우 앱은 그대로.
 - v0.39.3 규칙(중요) ① **맥 호스트(`NativeHost`)에서 `FileHandle.write(_:)` 를 쓰지 말 것.** Chrome 이 포트를 닫은 뒤 쓰면 Objective-C 예외(Broken pipe)로 프로세스가 abort 한다(2026-09-24 실제 충돌 4건). `write(contentsOf:)` + `hostClosed` 로 오류를 받는다. JSON 을 만들 때도 `JSONSerialization.isValidJSONObject` 를 먼저 본다(`try?` 는 ObjC 예외를 못 잡는다). `tests/host-pipe.test.mjs` 가 실제 바이너리로 지킨다.
 - v0.39.3 규칙 ② **`initialize()`(= `ready`)를 죽이지 말 것.** 모든 명령이 그것을 기다린다. 없어도 되는 단계는 `optional()` 안에 넣는다. **새 chrome.* API 를 쓰기 전에 `minimum_chrome_version`(120)에 있는지 확인**하고, 없으면 `?.` 로 건너뛴다 — `storage.local.setAccessLevel`(Chrome 130+)을 그냥 불러 120~129 에서 확장이 통째로 죽었다. 가장 오래된 시험용 Chrome(127)에서 `CHROME_BIN=<127 경로> node tests/e2e/<이름>.e2e.mjs` 로 돌려 볼 것.
 - v0.39.3 규칙 ③ **`locked.js` 는 해시(원래 주소)를 한 글자도 바꾸지 말고 쓴다.** `decodeURIComponent` 로 풀어 이동하면 `%26`·`%3A%2F` 가 바뀌고, 홀로 있는 `%` 에서는 예외로 스크립트가 죽는다. 풀어서 보이는 것은 안내 글에만, `try/catch` 로.

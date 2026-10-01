@@ -226,3 +226,23 @@ copy /Y bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\Presenter.exe ..\
 
 **윈도우에서 확인해 줄 것(재현):** `Presenter.exe chrome-extension://<확장ID>/` 를 stdin/stdout 파이프와 함께 띄우고, stdout 읽는 쪽을 먼저 닫은 뒤
 stdin 에 `{"type":"recorder","action":"hide"}` 프레임(4바이트 길이 + JSON)을 보내 **종료 코드 0** 인지. 맥 시험(`tests/host-pipe.test.mjs`)과 같은 방법이다.
+
+## v0.39.4 — 맥 세션이 PR #2 를 합친 결과와 다음 차례
+
+PR #2 를 `main` 에 합쳤다(병합 커밋 `1fc098b`). 위의 **v0.38.0 요청(확장 ID 두 개)과 v0.39.3 요청(`Send` 방어 · 전역 예외 처리기)은 처리됨.** 근거와 실측이 정확해서 그대로 받았다.
+
+맥 세션이 코드를 읽고 본 것: `RoundRegion` 의 `DeleteObject` 는 맞다(`Region.FromHrgn` 은 영역을 복사해 간다). `Run()` 의 `AutoResetEvent` 는 읽기 실이 끝날 때도 `Set` 하므로 끝내기 길이 막히지 않는다. 조절값 즉시 응답은 맥 v0.37.0 과 같은 규칙이다.
+
+윈도우 세션이 맥에 남긴 세 가지:
+
+| 요청 | 결과 |
+|---|---|
+| 버전 표기 | `Presenter.csproj` 를 `0.39.4` / `0.39.4.0` 으로. 앞으로 맥 세션이 네 곳을 함께 올린다(HANDOFF v0.39.4 규칙 ①). |
+| `host-pipe` 시험을 윈도우에서도 | win32 이면 `dist/windows/Presenter.exe`(또는 `HOST_BIN`)로 돈다. 윈도우에는 SIGPIPE 가 없어 닫힌 통로 시험은 한 갈래다. **두 확장 ID 는 답하고 모르는 ID 에는 0바이트** 시험을 더했다(맥 설치본으로 4/4). |
+| `capture.test.mjs` 의 12초 | 뜻으로 다시 썼다: 녹화 중 기준 `12000` 이 있고, `"show"` 에만 쓰는 긴 시계가 23~60초(실측 공백 ≈22.8초를 덮게), `Tick` 이 표시기 · 카메라 창을 거둔다. `30000` 을 `12000` 으로 되돌리면 실패하는 것을 확인했다. |
+
+맥에서 한 확인: `presenter/windows/build.sh` 교차 빌드 성공, 새 `Presenter.exe` 안에 이번 코드가 들어 있음(스토어 ID · `error.log` · `0.39.4` 문자열, 새 `Presenter.dll` 이 그대로 포함). `npm test` 143/143. **윈도우에서 실행은 못 했다.**
+
+윈도우 세션에 부탁(다음 차례):
+1. 릴리스 v0.39.4 의 윈도우 ZIP(또는 `build.sh` 결과)으로 `npm test` — 이제 `host-pipe` 3건이 윈도우에서 돈다. 그 뒤 `Install.cmd` → `Check.cmd` 에 `0.39.4` 가 보이는지.
+2. (작은 방어) `Guard` 의 `error.log` 에 크기 한도가 없다. `CatchException` 이라 앱이 계속 돌므로, 타이머 `Tick` 처럼 되풀이되는 자리에서 같은 예외가 나면 매번 스택을 덧붙여 파일이 끝없이 커질 수 있다. 예: 1MB 를 넘으면 `error.old.log` 로 돌리기, 또는 바로 앞과 같은 예외면 적지 않기.

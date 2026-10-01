@@ -250,7 +250,18 @@ test('녹화 창이 닫히면 표시기·카메라 창을 내린다', () => {
   assert.match(readFileSync('extension/record.js', 'utf8'), /addEventListener\('pagehide'[\s\S]{0,120}action: 'hide'/);
   // 확장이 말을 못 하고 죽어도 앱이 스스로 거둔다(12초 시계).
   assert.match(readFileSync('presenter/macos/Presenter.swift', 'utf8'), /Timer\(timeInterval:12,repeats:false\)/);
-  assert.match(readFileSync('presenter/windows/Presenter.cs', 'utf8'), /badgeWatch=new System\.Windows\.Forms\.Timer\{Interval=12000\}/);
+  // 윈도우는 뜻으로 본다: 녹화가 도는 동안의 기준은 12초, 'show' 뒤 첫 소식까지는 그보다 길게.
+  // 그 공백은 윈도우 실측으로 appCameraUp() 최악 12.4초 + 카운트다운 최대 10초 + 0.42초(≈22.8초)다.
+  // 12초로 두면 녹화가 막 시작되는 순간 표시기·카메라 창을 거둬 녹화본에 카메라가 안 담긴다(v0.36.6).
+  const win = readFileSync('presenter/windows/Presenter.cs', 'utf8');
+  const start = win.indexOf('badgeWatch.Start();');
+  const watch = win.slice(win.lastIndexOf('badgeWatch=new', start), start);
+  const intervals = [...watch.matchAll(/Interval\s*=\s*(\d+)/g)].map(match => Number(match[1]));
+  assert.ok(intervals.includes(12000), `녹화 중 기준이 12초가 아니다: ${intervals}`);
+  const first = Math.max(...intervals);
+  assert.ok(first >= 23000 && first <= 60000, `첫 소식까지의 시계가 실측 공백(≈22.8초)을 덮지 못하거나 너무 길다: ${first}ms`);
+  assert.match(watch, /"show"[^;]*Interval\s*=\s*\d+/, "긴 시계는 'show' 에만 쓴다");
+  assert.match(watch, /Tick[\s\S]*badge\.Close\(\)[\s\S]*CloseCamera\(\)/, '시계가 울리면 표시기와 카메라 창을 거둔다');
 });
 
 // 카메라·표시기는 '녹화 중인 그 모니터' 에 뜬다. 확장이 화면 이름과 픽셀 크기를 알려 준다.
