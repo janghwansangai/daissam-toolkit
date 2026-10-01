@@ -1843,7 +1843,7 @@ namespace BrowserSheriff {
           presenting=active,focus=focus,pins=pins.Count,through=through,hotkeys=active?4:0,keys=Keys2.Text(combos),badge=badge!=null&&!badge.IsDisposed,
           camera=cameraView!=null&&!cameraView.IsDisposed&&cameraView.Visible,
           // 앱이 마지막으로 건넨 말. 트레이 풍선이 윈도우 설정 때문에 안 보일 수 있어 여기에도 둔다.
-          notice=notice,noticeAt=noticeAt,
+          notice=notice,noticeAt=noticeAt,noticeAtMs=noticeAtMs,
           version=Presenter.Ver,started=DateTime.Now.ToString("HH:mm:ss")}),Encoding.UTF8);
       }catch{}
     }
@@ -2205,9 +2205,12 @@ namespace BrowserSheriff {
     //   ① 풍선 — 설정이 켜져 있을 때.
     //   ② 트레이 글씨 — 설정과 무관하게 아이콘에 올려 두면 보인다(63글자 한도).
     //   ③ state.json 의 notice — 사이드바가 읽어 보여 줄 수 있다(확장 쪽 반영 필요).
-    string notice="";string noticeAt="";
+    // noticeAtMs 는 날짜가 든 숫자다. noticeAt(HH:mm:ss)만으로는 사이드바가 어제 소식과
+    // 방금 소식을 가릴 수 없어서, 가리는 데 쓰는 값은 이쪽이다(v0.39.6 계약).
+    string notice="";string noticeAt="";long noticeAtMs=0;
     void Tell(string text){
       notice=text;noticeAt=DateTime.Now.ToString("HH:mm:ss",CultureInfo.InvariantCulture);
+      noticeAtMs=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
       try{
         if(tray!=null){
           string tip="다있쌤 · "+text;
@@ -2447,7 +2450,9 @@ namespace BrowserSheriff {
       try{using(EventWaitHandle.OpenExisting(Presenter.CommandEvent))return true;}
       catch{return false;}
     }
-    sealed class Shown {public bool Presenting,Focus,Running,Camera;public int Pins,Through;public string Keys;}
+    // Notice/NoticeAtMs: 앱이 마지막으로 건넨 말. 윈도우는 알림이 꺼져 있으면 트레이 풍선이
+    // 안 보이므로(실기기 확인) 사이드바가 대신 보여 줄 수 있게 답에 실어 보낸다(v0.39.6 계약).
+    sealed class Shown {public bool Presenting,Focus,Running,Camera;public int Pins,Through;public string Keys,Notice;public long NoticeAtMs;}
     static int Count(JsonElement root,string key){
       JsonElement node;int value;
       if(!root.TryGetProperty(key,out node)||!node.TryGetInt32(out value))return 0;
@@ -2469,6 +2474,10 @@ namespace BrowserSheriff {
           now.Camera=root.TryGetProperty("camera",out node)&&node.ValueKind==JsonValueKind.True;
           now.Running=true;
           if(root.TryGetProperty("keys",out node)&&node.ValueKind==JsonValueKind.String)now.Keys=node.GetString();
+          // 앱이 건넨 말. 시각은 날짜가 든 숫자여야 오래된 소식을 가릴 수 있다.
+          if(root.TryGetProperty("notice",out node)&&node.ValueKind==JsonValueKind.String)now.Notice=node.GetString();
+          long at;
+          if(root.TryGetProperty("noticeAtMs",out node)&&node.ValueKind==JsonValueKind.Number&&node.TryGetInt64(out at))now.NoticeAtMs=at;
         }
       }catch{return new Shown();}
       return now;
@@ -2477,12 +2486,15 @@ namespace BrowserSheriff {
       Shown now=ReadState();
       // running: 앱이 떠 있는지. keys: 앱이 지금 듣고 있는 조합(옛 앱이면 빠진다).
       bool running=now.Running||Alive();
+      // notice/noticeAtMs: 앱이 건넨 말. 사이드바가 1분 안의 새 소식만 한 번 보여 준다.
       if(now.Keys!=null)
         Send(new{kind="presenter",ok=true,launched=launched,running=running,keys=now.Keys,
-          presenting=now.Presenting,focus=now.Focus,pins=now.Pins,through=now.Through,camera=now.Camera});
+          presenting=now.Presenting,focus=now.Focus,pins=now.Pins,through=now.Through,camera=now.Camera,
+          notice=now.Notice,noticeAtMs=now.NoticeAtMs});
       else
         Send(new{kind="presenter",ok=true,launched=launched,running=running,
-          presenting=now.Presenting,focus=now.Focus,pins=now.Pins,through=now.Through,camera=now.Camera});
+          presenting=now.Presenting,focus=now.Focus,pins=now.Pins,through=now.Through,camera=now.Camera,
+          notice=now.Notice,noticeAtMs=now.NoticeAtMs});
     }
     // 사이드바 도크의 명령을 트레이 앱으로 넘긴다. Chrome 이 띄운 이 프로세스와 앱은 별개다.
     static void Forward(JsonElement root){
