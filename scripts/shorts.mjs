@@ -20,7 +20,7 @@ const scenes = [
   ['capture', '캡처 · 녹화도\n단추 하나로', '폴더 저장과 복사를 한 번에', '화면 캡처와 녹화도 단추 하나로. 폴더 저장과 복사를 한 번에.'],
   ['presenter', '발표는\n더 또렷하게', '화면 확대 · 큰 포인터 · 집중 모드', '발표할 땐 화면 확대와 큰 포인터로 또렷하게.'],
   ['tools', '교실 도구가\n사이드바 하나에', '타이머 · 수업 시보 · 뽑기 · PIN 잠금', '타이머, 수업 시보, 발표자 뽑기까지. 교실 도구가 사이드바 하나에.'],
-  [null, '무료 · 회원가입 없음', '다있쌤 소개 사이트에서 내려받기', '무료이고, 회원가입도 없어요. 지금 다있쌤을 만나 보세요.'],
+  [null, '무료 · 회원가입 없음', 'hwansang.kr/s/daitssam', '무료이고, 회원가입도 없어요. 화면의 주소에서 내려받으세요.'],
 ];
 
 // 1. 음성(장면마다 하나) — 길이를 재서 장면 길이로 쓴다
@@ -78,7 +78,7 @@ window.make=async()=>{
     g.globalAlpha=Math.max(0,Math.min(inA,outA));
     if(!s.page){
       const y=760-30*(1-inA);g.drawImage(icon,540-90,y-330,180,180);
-      text(s.big,540,y,s.big.includes('\\n')?104:84,800,'#fff');text(s.small,540,y+(s.big.includes('\\n')?300:170),44,500,'#9fd8b8');
+      text(s.big,540,y,s.big.includes('\\n')?104:84,800,'#fff');const isUrl=s.small.includes('/');text(s.small,540,y+(s.big.includes('\\n')?300:170),isUrl?62:44,isUrl?800:500,isUrl?'#fff7c2':'#9fd8b8');
     }else{
       text(s.big,540,230-20*(1-inA),88,800,'#fff');text(s.small,540,480,40,500,'#9fd8b8');
       const img=imgs[s.page];const w=760,h=w*img.height/img.width;const z=1+0.06*k;const x=540-w*z/2,y=600-40*k;
