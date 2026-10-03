@@ -1,0 +1,122 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>스토어 등록 안내</title>
+<style>
+:root{--bg:#f6f8f5;--card:#fff;--ink:#1c2a22;--sub:#5b6b62;--line:#dde5df;--acc:#1d4a3a;--hl:#fff7d6}
+@media (prefers-color-scheme:dark){:root{--bg:#121815;--card:#1b231f;--ink:#e6ede8;--sub:#9fb0a6;--line:#2c3832;--acc:#7fd0a8;--hl:#3a3420}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif}
+main{max-width:880px;margin:0 auto;padding:28px 16px 80px}h1{font-size:28px;margin:0 0 6px}h2{font-size:21px;margin:0 0 12px;color:var(--acc)}
+.lead{color:var(--sub);margin:0 0 24px}section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:0 0 18px}
+.where{background:var(--hl);border-radius:8px;padding:8px 12px;margin:0 0 14px;font-size:15px}.f{margin:14px 0}.f>b{display:block;margin-bottom:4px}
+.cp{display:flex;gap:8px;align-items:flex-start}textarea{flex:1;width:100%;font:14px/1.5 inherit;font-family:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);resize:vertical}
+button{flex:none;border:0;border-radius:8px;background:var(--acc);color:#fff;padding:8px 14px;font-weight:700;cursor:pointer}@media (prefers-color-scheme:dark){button{color:#10221a}}
+table{width:100%;border-collapse:collapse}td{border-top:1px solid var(--line);padding:8px 6px;vertical-align:top}td:first-child{width:28%;font-size:14px}
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}.imgs figure{margin:0;font-size:13px;color:var(--sub)}.imgs img{width:100%;border:1px solid var(--line);border-radius:8px}
+.chk li{margin:4px 0}.warn{border-left:4px solid #d9a400;padding:6px 12px;background:var(--hl);border-radius:6px}
+</style>
+<main>
+<h1>크롬 웹 스토어 등록 안내</h1>
+<p class="lead">개발자 대시보드(chrome.google.com/webstore/devconsole) → <b>다있쌤</b> 항목을 열고, 왼쪽 메뉴를 위에서부터 차례로 채우면 됩니다. 각 칸 옆 <b>복사</b>를 누르고 대시보드 칸에 붙여 넣으세요. 이 폴더(store)에 필요한 그림이 모두 들어 있습니다.</p>
+
+<section><h2>1. 패키지</h2>
+<div class="where">왼쪽 메뉴 <b>패키지</b></div>
+<p>이미 올리셨습니다(<b>browser-sheriff-store-0.39.9.zip</b>). 버전이 0.39.9 로 보이면 됩니다.</p></section>
+
+<section><h2>2. 스토어 등록정보</h2>
+<div class="where">왼쪽 메뉴 <b>스토어 등록정보</b> → 화면 위 언어가 <b>한국어</b>인지 확인</div>
+<div class="f"><b>이름 · 요약</b>zip 안의 정보로 자동으로 채워집니다(이름 ‘다있쌤’, 요약 ‘프로필 오사용 방지, 동기화 메모, 폴더 북마크, 발표 도우미, 수업 유틸리티’). 바꿀 필요 없습니다.</div>
+<div class="f"><b>설명</b><div class="cp"><textarea readonly rows="14">선생님을 위한 수업 도우미, 다있쌤입니다. 수업 중에 필요한 것들을 Chrome 사이드바 하나에 모았습니다.
+
+■ 빠른 메모
+수업 중 떠오른 것을 바로 적어 두세요. 메모는 여러 개를 쓰고 제목으로 골라 쓸 수 있으며, 같은 Google 계정의 다른 컴퓨터에서도 이어서 볼 수 있습니다(Chrome 동기화).
+
+■ 폴더 북마크
+수업 자료 사이트를 폴더별로 정리해 두고 한 번에 엽니다.
+
+■ 캡처와 녹화
+선택 영역 캡처, 스크롤 전체 페이지 캡처, 화면 녹화를 지원합니다. 캡처한 이미지는 바탕화면 &#x27;캡처이미지&#x27; 폴더에 저장되고 클립보드에도 복사됩니다.
+
+■ 발표 도구
+화면 확대, 큰 포인터, 집중 모드, 화면 조각 핀으로 수업 화면을 또렷하게 보여 줍니다. (맥·윈도우용 발표 도우미 앱을 함께 설치하면 쓸 수 있습니다.)
+
+■ 수업 유틸리티
+스톱워치·타이머, 수업 시보, 발표자 뽑기, 팀 포인트 판, 소음 측정기, 녹음기를 사이드바에서 바로 씁니다.
+
+■ 프로필 잠금과 백업
+PIN 으로 프로필을 잠가 다른 사람이 쓰지 못하게 하고, 메모·북마크·설정을 파일 하나로 백업해 다른 컴퓨터에서 복원할 수 있습니다.
+
+■ 개인정보
+개발자 서버가 없고, 어떤 정보도 개발자에게 보내지 않습니다. 메모와 설정은 사용자의 Chrome 에만, 캡처 이미지는 이 컴퓨터에만 저장됩니다.</textarea><button onclick="c(this)">복사</button></div></div>
+<div class="f"><b>카테고리</b><b>교육</b>을 고르세요. (없으면 ‘생산성 → 도구’)</div>
+<div class="f"><b>언어</b>한국어</div>
+<div class="f"><b>그래픽 저작물</b>
+<div class="imgs">
+<figure><img src="icon-128.png" style="width:64px">스토어 아이콘(128×128) → <b>icon-128.png</b></figure>
+<figure><img src="screenshot-1-memo.png">스크린샷 1 → <b>screenshot-1-memo.png</b></figure>
+<figure><img src="screenshot-2-capture.png">스크린샷 2 → <b>screenshot-2-capture.png</b></figure>
+<figure><img src="screenshot-3-present.png">스크린샷 3 → <b>screenshot-3-present.png</b></figure>
+<figure><img src="screenshot-4-tools.png">스크린샷 4 → <b>screenshot-4-tools.png</b></figure>
+<figure><img src="promo-small-440x280.png">작은 홍보 타일(440×280) → <b>promo-small-440x280.png</b></figure>
+</div><p>스크린샷 칸에 네 장을 차례로 끌어다 놓으세요. ‘마키 홍보 타일(1400×560)’과 ‘홍보 동영상’은 비워 둬도 됩니다.</p></div>
+<div class="f"><b>공식 URL · 홈페이지 URL · 지원 URL</b>비워 둬도 됩니다.</div>
+<div class="f"><b>성인용 콘텐츠</b>아니요</div>
+<p>맨 위 오른쪽 <b>초안 저장</b>을 누르세요.</p></section>
+
+<section><h2>3. 개인정보처리방침 (먼저 주소를 만들어야 합니다)</h2>
+<p>대시보드는 공개된 웹 주소를 요구합니다. 가장 쉬운 방법은 Google 문서입니다.</p>
+<ol class="chk"><li>docs.google.com 에서 <b>새 문서</b>를 만들고 아래 글을 붙여 넣습니다.</li>
+<li>메뉴 <b>파일 → 공유 → 웹에 게시</b> → <b>게시</b>를 누릅니다.</li>
+<li>나온 주소(https://docs.google.com/document/d/e/…/pub)를 복사해 두세요. 4번에 씁니다.</li></ol>
+<div class="cp"><textarea readonly rows="12">다있쌤 개인정보처리방침
+
+최종 수정일: 2026년 10월 3일
+
+다있쌤(이하 &#x27;이 확장 프로그램&#x27;)은 선생님의 수업을 돕는 Chrome 확장 프로그램입니다. 이 확장 프로그램은 개발자가 운영하는 서버가 없으며, 사용자의 정보를 개발자에게 보내거나 수집하지 않습니다.
+
+1. 저장하는 정보와 장소
+- 메모, 북마크, 설정, 수업 도구 설정: 사용자의 Chrome 저장소에 저장됩니다. 사용자가 Chrome 동기화를 켜 두었다면 Google 계정의 Chrome 동기화를 통해 같은 계정의 다른 컴퓨터로 옮겨집니다.
+- 잠금 PIN: 원래 숫자가 아닌 변환된 값(해시)으로만 이 컴퓨터에 저장됩니다.
+- 캡처 이미지와 녹화 파일: 이 컴퓨터의 바탕화면 &#x27;캡처이미지&#x27; 폴더 또는 사용자가 고른 곳에만 저장되며 동기화하지 않습니다.
+- 백업 파일: 사용자가 직접 만들고 보관합니다. 암호를 걸면 그 암호 없이는 열 수 없습니다.
+
+2. 개발자에게 보내는 정보
+없습니다. 이 확장 프로그램은 광고, 분석, 사용 통계 도구를 쓰지 않으며, 어떤 정보도 개발자나 제3자에게 보내지 않습니다.
+
+3. 웹페이지 접근
+화면 캡처와 프로필 잠금 기능이 사용자가 여는 페이지에서 동작하도록 웹페이지에 접근합니다. 페이지 내용을 저장하거나 외부로 보내지 않습니다. 캡처는 사용자가 단추를 누를 때만 합니다.
+
+4. 발표 도우미 앱
+선택해서 설치하는 발표 도우미 앱(맥·윈도우)은 같은 컴퓨터 안에서만 확장 프로그램과 대화하며 인터넷으로 정보를 보내지 않습니다.
+
+5. 정보 삭제
+확장 프로그램을 제거하면 이 컴퓨터의 저장 정보가 지워집니다. 동기화된 정보는 Chrome 설정의 동기화 데이터 삭제로 지울 수 있습니다. 캡처 파일은 &#x27;캡처이미지&#x27; 폴더에서 직접 지우면 됩니다.
+
+6. 문의
+janhan97@gmail.com
+</textarea><button onclick="c(this)">복사</button></div></section>
+
+<section><h2>4. 개인정보 보호 관행</h2>
+<div class="where">왼쪽 메뉴 <b>개인정보 보호 관행</b> (영어로 써야 검토가 빠릅니다 — 그대로 복사하세요)</div>
+<div class="f"><b>단일 목적 설명</b><div class="cp"><textarea readonly rows="3">A classroom helper for teachers: quick notes, folder bookmarks, screen capture and recording, presentation tools and class utilities in one side panel, with a PIN lock for shared computers.</textarea><button onclick="c(this)">복사</button></div></div>
+<div class="f"><b>권한별 사유</b> — 대시보드에 보이는 권한 이름에 맞춰 붙여 넣으세요.<table><tr><td><b>storage</b></td><td><div class="cp"><textarea readonly rows="3">Saves the user&#x27;s notes, bookmarks and settings in Chrome storage.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>alarms</b></td><td><div class="cp"><textarea readonly rows="3">Runs class bell and timer alarms, and retries syncing notes.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>idle</b></td><td><div class="cp"><textarea readonly rows="3">Locks the profile with the user&#x27;s PIN when the computer is left idle (optional setting).</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>declarativeNetRequest</b></td><td><div class="cp"><textarea readonly rows="3">While the profile is locked, shows a lock page instead of websites so others cannot use the browser.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>scripting</b></td><td><div class="cp"><textarea readonly rows="3">Adds the lock screen and the area-capture tool to tabs the user already has open.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>clipboardWrite</b></td><td><div class="cp"><textarea readonly rows="3">Copies captured images and note text to the clipboard when the user asks.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>sidePanel</b></td><td><div class="cp"><textarea readonly rows="3">The whole user interface of the extension is a side panel.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>nativeMessaging</b></td><td><div class="cp"><textarea readonly rows="3">Talks to the optional presenter app installed on the same computer (screen zoom, large pointer, screen pins, saving captures). No data leaves the computer.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>offscreen</b></td><td><div class="cp"><textarea readonly rows="3">Copies images to the clipboard and plays bell sounds in the background.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>notifications</b></td><td><div class="cp"><textarea readonly rows="3">Tells the user when a capture or recording has been saved, or when a class bell rings.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>desktopCapture</b></td><td><div class="cp"><textarea readonly rows="3">Screen recording that the user starts with the record button.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>tabCapture</b></td><td><div class="cp"><textarea readonly rows="3">Records or captures the current tab when the user chooses &#x27;this tab&#x27;.</textarea><button onclick="c(this)">복사</button></div></td></tr><tr><td><b>호스트 권한 (&lt;all_urls&gt;)</b></td><td><div class="cp"><textarea readonly rows="3">Capture and the profile lock must work on any page the teacher opens in class. Page content is never stored or sent anywhere.</textarea><button onclick="c(this)">복사</button></div></td></tr></table></div>
+<div class="f"><b>원격 코드를 사용하나요?</b> → <b>아니요, 원격 코드를 사용하지 않습니다</b></div>
+<div class="f"><b>데이터 사용 — 수집하는 사용자 데이터</b><br>모든 항목을 <b>체크하지 마세요</b>. (메모·설정은 사용자의 Chrome 에만 저장되고 개발자에게 오지 않으므로 ‘수집’이 아닙니다.)</div>
+<div class="f"><b>아래 세 가지 인증</b> → 세 칸 모두 <b>체크</b><br>· 승인된 용도 외에 제3자에게 판매·전송하지 않음 · 단일 목적과 무관한 용도로 쓰지 않음 · 신용 평가·대출 목적으로 쓰지 않음</div>
+<div class="f"><b>개인정보처리방침 URL</b> → 3번에서 복사한 주소</div>
+<p><b>초안 저장</b>.</p></section>
+
+<section><h2>5. 배포</h2>
+<div class="where">왼쪽 메뉴 <b>배포</b></div>
+<div class="f"><b>결제</b>무료</div>
+<div class="f"><b>공개 상태</b> 둘 중 하나:
+<ul class="chk"><li><b>미등록(Unlisted)</b> — 링크를 아는 사람은 누구나 설치, 검색에는 안 나옴. <b>나눠 주기 편해서 추천.</b></li>
+<li><b>비공개(Private)</b> — 아래 ‘신뢰할 수 있는 테스터’에 적은 Google 계정만 설치. 이메일을 쉼표로 나눠 적습니다(본인 janhan97@gmail.com 포함).</li></ul></div>
+<div class="f"><b>배포 지역</b>모든 지역</div>
+<p><b>초안 저장</b>.</p></section>
+
+<section><h2>6. 제출</h2>
+<p>오른쪽 위 <b>검토를 위해 제출</b>. 빠진 칸이 있으면 빨간 글씨로 알려 주니 그 칸만 채우고 다시 누르세요.</p>
+<ul class="chk"><li>‘검토 후 자동 게시’는 켜 두면 통과하자마자 링크가 열립니다.</li>
+<li>검토는 보통 며칠, 권한이 많아 더 걸릴 수 있습니다. 추가 질문 메일이 오면 내용을 Claude 에게 보여 주세요.</li>
+<li>통과 후 설치 주소: <b>https://chromewebstore.google.com/detail/cgefngalkalghipmhijniclmlpimpmhf</b></li></ul>
+<p class="warn">발표 도우미 앱은 스토어에 올릴 수 없습니다. 지금 사이드바의 ‘발표 프로그램 다운로드’는 비공개 GitHub 를 가리켜 다른 분은 받지 못하므로, 앱 zip 은 직접 전해 주세요(또는 저장소 공개를 Claude 에게 요청).</p></section>
+</main>
+<script>function c(b){const t=b.previousElementSibling;t.select();navigator.clipboard.writeText(t.value).then(()=>{b.textContent='복사됨';setTimeout(()=>b.textContent='복사',1500)}).catch(()=>document.execCommand('copy'));}</script></html>
