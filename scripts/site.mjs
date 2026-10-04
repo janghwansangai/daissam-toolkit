@@ -29,7 +29,7 @@ for (const [name, src, pdf] of guides) {
   if (fs.statSync(`${OUT}/${pdf}`).size < 10000) throw new Error(pdf + ' 를 만들지 못했습니다');
 }
 await C.stop();
-fs.rmSync(tmp, {recursive: true, force: true});
+try { fs.rmSync(tmp, {recursive: true, force: true, maxRetries: 5, retryDelay: 300}); } catch {}
 
 for (const f of ['screenshot-1-memo.png', 'screenshot-2-capture.png', 'screenshot-3-present.png', 'screenshot-4-tools.png', 'icon-128.png'])
   fs.copyFileSync('store/' + f, `${OUT}/img/${f}`);
@@ -85,5 +85,14 @@ fetch('https://api.github.com/repos/${REPO}/releases/latest').then(r=>r.ok?r.jso
   if(rel.tag_name)document.getElementById('ver').textContent='최신 버전 '+rel.tag_name.replace(/^v/,'');
 }).catch(()=>{});
 </script></body></html>`);
-fs.writeFileSync(`${OUT}/_headers`, `/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n`);
+// 보안 머리글: http 로 들어와도 브라우저가 https 로만 쓰게(HSTS), 페이지 안의 http 주소는 https 로 올려 불러오게(upgrade-insecure-requests),
+// 불러올 수 있는 곳은 이 사이트와 GitHub 최신 릴리스 조회(api.github.com)뿐이다.
+fs.writeFileSync(`${OUT}/_headers`, `/*
+  Strict-Transport-Security: max-age=31536000
+  Content-Security-Policy: upgrade-insecure-requests; default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+`);
 console.log('site/ :', fs.readdirSync(OUT).join(', '));
