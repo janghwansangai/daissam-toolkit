@@ -13,6 +13,7 @@ async function paint(){
     const r=await chrome.runtime.sendMessage({type:'state'});
     if(!r?.ok)return;
     document.getElementById('title').textContent=r.data.configured?r.data.name+'입니다':'잠겨 있습니다';
+    document.getElementById('why').textContent=r.data.lockText||'';
     if(!r.data.locked)leave();
   }catch{}
 }

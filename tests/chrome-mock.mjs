@@ -34,7 +34,7 @@ export function createChrome(seed={}) {
       getAll:async()=>[...alarmNames.entries()].map(([name,info])=>({name,...(info||{})})),onAlarm:alarmsEvent},
     offscreen:{createDocument:async({url})=>{offscreen.open=true;offscreen.url=url;},closeDocument:async()=>{offscreen.open=false;}},
     notifications:{create:async info=>{notified.push(info);return 'n'+notified.length;},clear:async()=>true,onClicked:{addListener(){}}},
-    idle:{setDetectionInterval:()=>{},onStateChanged:idleEvent},commands:{onCommand:commands,getAll:async()=>[{name:'lock-profile',shortcut:'Ctrl+Shift+L',description:'프로필 잠금'}]},
+    idle:{setDetectionInterval:()=>{},onStateChanged:idleEvent},commands:{onCommand:commands,getAll:async()=>[{name:'lock-profile-key',shortcut:'',description:'프로필 잠금'}]},
     declarativeNetRequest:{updateDynamicRules:async({removeRuleIds=[],addRules=[]})=>{removeRuleIds.forEach(id=>rules.delete(id));addRules.forEach(r=>rules.set(r.id,r));}},
     action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}},
     sidePanel:{setPanelBehavior:async()=>{}},

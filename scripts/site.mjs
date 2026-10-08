@@ -75,7 +75,7 @@ fs.writeFileSync(`${OUT}/index.html`, `<!doctype html><html lang="ko"><title>다
 <div class="box"><h3>맥 발표 도우미</h3><p>화면 확대 · 포인터 · 화면 조각 핀. 확장의 발표 탭에서도 받을 수 있습니다.</p><a class="btn" data-asset="browser-sheriff-presenter-macos-" href="https://github.com/${REPO}/releases/latest">맥용 받기</a></div>
 <div class="box"><h3>윈도우 발표 도우미</h3><p>압축을 푼 뒤 Install.cmd 를 실행합니다.</p><a class="btn" data-asset="browser-sheriff-presenter-windows-" href="https://github.com/${REPO}/releases/latest">윈도우용 받기</a></div></div>
 <p style="color:var(--sub);font-size:15px">Chrome 웹 스토어 판은 검토가 끝나면 위 ‘Chrome 웹 스토어’ 단추로 설치할 수 있습니다. 지난 버전은 <a href="https://github.com/${REPO}/releases">모든 릴리스</a>에 있습니다.</p>
-<h2>설치는 이렇게</h2><ol class="steps"><li>위 <b>확장 ZIP</b> 을 받아 압축을 풀고, 나온 폴더를 문서 폴더처럼 지우지 않을 곳에 둡니다.</li><li>Chrome 주소창에 <b>chrome://extensions</b> → 오른쪽 위 <b>개발자 모드</b> 켜기.</li><li><b>압축해제된 확장 프로그램을 로드</b> → 그 폴더를 고릅니다.</li><li>퍼즐 아이콘에서 다있쌤을 고정하고, 처음 화면에서 이름과 PIN 을 정합니다.</li><li>발표 도구를 쓰려면 사이드바 <b>발표 → 발표 프로그램 다운로드</b> 에서 앱을 받습니다.</li></ol>
+<h2>설치는 이렇게</h2><ol class="steps"><li>위 <b>확장 ZIP</b> 을 받아 압축을 풀고, 나온 폴더를 문서 폴더처럼 지우지 않을 곳에 둡니다.</li><li>Chrome 주소창에 <b>chrome://extensions</b> → 오른쪽 위 <b>개발자 모드</b> 켜기.</li><li><b>압축해제된 확장 프로그램을 로드</b> → 그 폴더를 고릅니다.</li><li>퍼즐 아이콘에서 다있쌤을 고정하고, 처음 화면에서 이름과 PIN 을 정합니다(잠금이 필요 없으면 <b>PIN 없이 바로 쓰기</b>).</li><li>발표 도구를 쓰려면 사이드바 <b>발표 → 발표 프로그램 다운로드</b> 에서 앱을 받습니다.</li></ol>
 <p>그림과 함께 자세히: <a href="install.html">설치 안내</a> · <a href="다있쌤-설치안내.pdf">PDF</a> &nbsp;|&nbsp; 기능 설명: <a href="guide.html">사용설명서</a> · <a href="다있쌤-사용설명서.pdf">PDF</a></p></main>${foot}
 <script>
 // 최신 릴리스의 실제 파일 주소로 단추를 바꾼다. 실패하면 릴리스 페이지로 그대로 간다.

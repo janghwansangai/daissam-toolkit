@@ -4,6 +4,17 @@ import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,IMAGES_PER_NOTE,
 import {captureAndDeliver,targetTab,pickTabArea} from './capture-core.js';
 const RULE=701;
 const HOST='app.browsersheriff.presenter';
+// 개발자 모드로 올린 판의 확장 ID. 스토어 판과 함께 깔려 있으면 잠금 화면이 둘 겹칠 수 있어 잠금 화면에 어느 판인지 적는다.
+const DEV_ID='ehgodopakibamgeopmelemjmjdjhbdgm';
+// 발표 도우미 앱이 없거나 꺼져 있을 때. 무엇을 해야 하는지까지 말한다(사용자 보고: 도크를 눌러도 안내가 없다).
+const LOCK_WHY={
+  start:'Chrome 을 다시 켰거나 확장이 새로 시작되어 잠겼습니다(설정: 시작할 때 잠그기)',
+  away:'화면 잠금·절전에서 돌아와 잠겼습니다(설정: 절전·화면 잠금에서 돌아오면 잠그기)',
+  idle:'한동안 쓰지 않아 잠겼습니다(설정: 자리를 비웠을 때 자동 잠금)',
+  key:'잠금 단축키를 눌러 잠겼습니다',
+  button:'잠금 단추를 눌러 잠겼습니다'
+};
+const APP_MISSING='발표 도우미 앱이 필요합니다. [발표] 탭 → ‘발표 프로그램 다운로드’에서 앱을 받아 설치한 뒤 Chrome 을 다시 켜 주세요.';
 // 사용자가 연 유튜브 뮤직 탭에서 실행된다. 페이지가 이미 보여 주는 버튼을 누르고 곡 제목을 읽는다.
 function controlMusic(action,text){
   const click=selector=>{const button=document.querySelector(selector);if(button){button.click();return true;}return false;};
@@ -58,7 +69,13 @@ async function state() {
   const p=await profile();
   const authorized=await authorizedNow();
   const {stateRevision=0}=await chrome.storage.local.get('stateRevision');
-  return {revision:stateRevision,configured:!!p,locked:!!p&&!authorized,name:p?.name||'내 프로필',idleMinutes:p?.idleMinutes||0,startLocked:await startLocked(),lockOnAway:await lockOnAway(),wheelZoom:await wheelZoom()};
+  const guest=!!p&&!p.proof;
+  const {lockWhy=''}=await chrome.storage.local.get('lockWhy');
+  const locked=!!p&&!guest&&!authorized;
+  const why=locked?(lockWhy||'start'):'';
+  const edition=chrome.runtime.id===DEV_ID?'dev':'store';
+  const lockText=locked?(LOCK_WHY[why]||LOCK_WHY.start)+(edition==='dev'?' · 개발자 모드 판':' · 스토어 판'):'';
+  return {revision:stateRevision,configured:!!p,guest,locked,lockWhy:why,lockText,edition,name:p?.name||'내 프로필',idleMinutes:p?.idleMinutes||0,startLocked:await startLocked(),lockOnAway:await lockOnAway(),wheelZoom:await wheelZoom()};
 }
 async function enforce() {
   const {stateRevision=0}=await chrome.storage.local.get('stateRevision');
@@ -78,10 +95,18 @@ async function enforce() {
   chrome.runtime.sendMessage({type:'state-changed',state:s}).catch(()=>{});
   return s;
 }
-async function lock() { await allow(false); return enforce(); }
+// 잠근 까닭을 남긴다. 잠금 화면이 '왜 잠겼는지' 를 보여 주어야 사용자가 설정을 고칠 수 있다(사용자 보고: 잠금을 모두 껐는데 잠긴다).
+// PIN 없이 쓰는 게스트 프로필은 잠그지 않는다 — 풀 PIN 이 없다.
+async function lock(why='button') {
+  const p=await profile();
+  if(p&&!p.proof)return enforce();
+  await chrome.storage.local.set({lockWhy:why});
+  await allow(false); return enforce();
+}
 // 지금 프로필의 PIN 이 맞는지 본다. 틀리면 횟수를 세고, 다섯 번 틀리면 30초 쉬게 한다.
 // 잠금 해제와 ‘백업으로 잠금 PIN 바꾸기’가 같은 횟수를 나눠 쓴다 — 어느 쪽으로든 PIN 을 알아내려는 시도를 막는다.
 async function checkPin(pin) {
+  if(!(await profile())?.proof)throw new Error('PIN 이 없는 게스트 프로필입니다.');
   const {attempts={count:0,until:0}}=await chrome.storage.local.get('attempts');
   if(Date.now()<attempts.until)throw new Error('잠시 후 다시 시도하세요.');
   try {if((await unseal(pin,(await profile()).proof)).kind!=='profile')throw Error();}
@@ -175,7 +200,7 @@ async function restoreBackup(m) {
   const want={};for(const name of ['notes','bookmarks','settings','tools','lock'])want[name]=!!m.parts?.[name];
   const withLock=want.lock&&!!data.lock;
   if(!before.configured&&!withLock)throw Error('이 컴퓨터에는 아직 프로필이 없습니다. 잠금 PIN 이 든 백업을 고르거나, 먼저 PIN 을 만들어 주세요.');
-  if(withLock&&before.configured)await checkPin(m.pin);
+  if(withLock&&before.configured&&!before.guest)await checkPin(m.pin);
   const done={},problems=[];
   const part=async(name,job)=>{try{done[name]=await job();}catch(error){problems.push(name+': '+error.message);}};
   const settings=want.settings?data.settings:null;
@@ -385,9 +410,9 @@ chrome.alarms.onAlarm.addListener(a=>{
     try{ await scheduleBells(); }catch{}
   });
 });
-chrome.runtime.onStartup.addListener(()=>exclusive(async()=>{await ready;if(await startLocked())await lock();}));
+chrome.runtime.onStartup.addListener(()=>exclusive(async()=>{await ready;if(await startLocked())await lock('start');}));
 chrome.commands.onCommand.addListener(c=>{
-  if(c==='lock-profile'){exclusive(async()=>{await ready;await lock();});return;}
+  if(c==='lock-profile-key'){exclusive(async()=>{await ready;await lock('key');});return;}
   // 캡처 단축키. 사이드바를 열지 않아도 된다. 결과는 알림으로 알린다.
   const mode={'capture-visible':'visible','capture-area':'area','capture-full':'full'}[c];
   if(mode)quickCapture(mode).catch(()=>{});
@@ -569,8 +594,8 @@ chrome.idle.onStateChanged.addListener(s=>exclusive(async()=>{
   await ready;
   if(s==='active')return;
   // 화면 잠금·절전은 '자리를 비움' 설정과 따로 논다. 둘 다 끌 수 있어야 한다.
-  if(s==='locked'){ if(await lockOnAway())await lock(); return; }
-  if((await profile())?.idleMinutes)await lock();
+  if(s==='locked'){ if(await lockOnAway())await lock('away'); return; }
+  if((await profile())?.idleMinutes)await lock('idle');
 }));
 function trusted(sender) { return sender.url?.startsWith(chrome.runtime.getURL('')); }
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{
@@ -606,11 +631,31 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     if(!trusted(sender))throw new Error('확장 패널에서만 사용할 수 있습니다.');
     if(m.type==='setup'){
       if(await profile())throw new Error('이미 설정된 프로필입니다.');
+      if(m.guest){
+        await chrome.storage.local.set({profile:{name:String(m.name||'게스트').slice(0,40),proof:null,idleMinutes:0}});
+        await allow(true);return enforce();
+      }
       assertPin(m.pin);
       await chrome.storage.local.set({profile:{name:String(m.name||'내 프로필').slice(0,40),proof:await seal(m.pin,{kind:'profile'}),idleMinutes:0}});
       await allow(true);return enforce();
     }
-    if(m.type==='unlock') { await checkPin(m.pin);await allow(true);return enforce(); }
+    if(m.type==='unlock') { await checkPin(m.pin);await allow(true);await chrome.storage.local.remove('lockWhy');return enforce(); }
+    // 게스트 → PIN 만들기, PIN 프로필 → PIN 없이 쓰기(지금 PIN 확인이 먼저).
+    if(m.type==='pin-set'){
+      const p=await profile();
+      if(!p)throw new Error('프로필이 없습니다.');
+      if(p.proof)await checkPin(m.current);
+      assertPin(m.pin);
+      await chrome.storage.local.set({profile:{...p,proof:await seal(m.pin,{kind:'profile'})}});
+      await allow(true);return enforce();
+    }
+    if(m.type==='pin-remove'){
+      const p=await profile();
+      if(!p?.proof)return enforce();
+      await checkPin(m.current);
+      await chrome.storage.local.set({profile:{...p,proof:null,idleMinutes:0}});
+      await allow(true);await chrome.storage.local.remove('lockWhy');return enforce();
+    }
     if(m.type==='clip-state')return clipStatus();
     if(m.type==='presenter-command'){
       // 한 번짜리 호출이라 도우미가 뜨고 명령을 넘긴 뒤 바로 끝난다.
@@ -620,7 +665,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       for(const key of ['action','dim','blur','ring','ringSize','keys'])if(m[key]!==undefined)payload[key]=String(m[key]);
       let reply;
       try { reply=await presenterSay(payload); }
-      catch { throw Error('발표 도우미에 연결하지 못했습니다. 앱을 설치하고 클립보드 도우미를 등록해 주세요.'); }
+      catch { throw Error(APP_MISSING); }
       // 도우미가 앱에 명령을 넘기지 못한 경우. 예전에는 이 답을 그냥 흘려보내 사이드바가
       // 아무 말도 하지 않았고, 사용자는 버튼이 죽은 것으로만 보였다.
       if(reply&&reply.ok===false)throw Error(String(reply.message||'발표 도우미 앱에 명령을 전달하지 못했습니다.'));
@@ -643,7 +688,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       if(m.action==='hide'){ try{port.disconnect();}catch{} badgePort=null; }
       return {sent:true};
     }
-    if(m.type==='lock')return lock();
+    if(m.type==='lock')return lock('button');
     // 잠금 상태 확인은 함수 안에서 한다. 처음 쓰는 컴퓨터(아직 프로필이 없음)에서도 백업으로 시작할 수 있어야 한다.
     if(m.type==='backup-restore')return restoreBackup(m);
     if(m.type==='close-window'){const w=await chrome.windows.getCurrent();await chrome.windows.remove(w.id);return true;}

@@ -2,12 +2,12 @@
 // 처음 열 때만 화면 위쪽 가운데에 둔다. 누르는 것은 사이드바의 도크와 똑같은 명령을 보낸다.
 const $ = id => document.getElementById(id);
 let tipTimer = 0;
-function tip(text) {
+function tip(text, ms = 2600) {
   const box = $('tip');
   clearTimeout(tipTimer);
   if (!text) { box.hidden = true; box.textContent = ''; return; }
   box.textContent = text; box.hidden = false;
-  tipTimer = setTimeout(() => { box.hidden = true; }, 2600);
+  tipTimer = setTimeout(() => { box.hidden = true; }, ms);
 }
 // 이름은 운영체제 풍선말(title)로 보여 준다 — 창에 줄을 더 만들지 않기 위해서다.
 for (const button of document.querySelectorAll('[data-tip]')) button.title = button.dataset.tip;
@@ -19,7 +19,12 @@ async function api(type, data = {}) {
 function act(id, run, saying) {
   $(id).addEventListener('click', async () => {
     tip(saying);
-    try { await run(); } catch (error) { tip(error.message); return; }
+    try { await run(); } catch (error) {
+      // 발표 도우미 앱이 없을 때는 무엇을 해야 하는지 짧게, 오래 보여 준다(사용자 보고: 눌러도 안내가 없다).
+      const missing = String(error.message).startsWith('발표 도우미 앱이 필요합니다');
+      tip(missing ? '⚠ 발표 도우미 앱이 필요합니다 · 사이드바 발표 탭에서 받으세요' : error.message, missing ? 8000 : 4000);
+      return;
+    }
     setTimeout(() => { refresh().catch(() => {}); }, 600);
   });
 }

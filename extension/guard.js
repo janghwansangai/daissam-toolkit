@@ -38,6 +38,8 @@
     const button=document.createElement('button');button.textContent='PIN 확인하기';
     button.addEventListener('click',()=>chrome.runtime.sendMessage({type:'open-unlock'}));
     const small=document.createElement('small');small.textContent='기존 탭과 입력한 내용은 그대로 남아 있습니다.';
+    // 왜 잠겼는지(설정 어느 칸 때문인지)와 어느 판인지 — 잠금을 껐는데 잠긴다는 보고를 가리려면 이것이 보여야 한다.
+    const why=document.createElement('small');why.textContent=s.lockText||'';why.style.marginTop='8px';
     section.append(label,title,p);
     if(topFrame){
       const guest=document.createElement('button');guest.textContent='게스트 창으로 넘어가기';
@@ -46,7 +48,7 @@
       const close=document.createElement('button');close.textContent='이 창 닫기';
       close.style.cssText='margin-top:12px;background:#265640;color:#eaf7e2';
       close.onclick=()=>chrome.runtime.sendMessage({type:'close-guard-window'});
-      section.append(button,guest,close,small);controls=[button,guest,close];
+      section.append(button,guest,close,small,why);controls=[button,guest,close];
     }
     root.append(style,section);
     (document.body||document.documentElement||document).append(host);

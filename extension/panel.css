@@ -151,3 +151,5 @@ body.capturing .cap-tile,body.capturing .cap-row,body.capturing #dock-cap-area,b
 .bk-row .quiet{flex:none}
 #gate-restore{margin-top:14px}
 #gate-restore-box{margin-top:6px}
+.dock-tip.warn{color:#c2412d;font-weight:700}
+#gate-description{white-space:pre-line}

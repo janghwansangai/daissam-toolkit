@@ -40,7 +40,21 @@ async function api(type,data={}) {
   return r.data;
 }
 function notice(message=''){ $('notice').textContent=message;$('notice').hidden=!message; }
-function event(id,type,fn){$(id).addEventListener(type,async e=>{try{notice();await fn(e);}catch(err){notice(err.message);}});}
+function event(id,type,fn){$(id).addEventListener(type,async e=>{try{notice();await fn(e);}catch(err){notice(err.message);if(String(err.message).startsWith('발표 도우미 앱이 필요합니다'))appMissing(err.message);}});}
+// 발표 도우미 앱이 없을 때. 안내가 화면 아래에만 뜨면 놓치기 쉬워 도크 위 줄에도 띄우고,
+// 발표 탭의 ‘발표 프로그램 다운로드’ 를 펼쳐 바로 받을 수 있게 한다.
+let appMissingTimer=0;
+function appMissing(message){
+  const tip=$('dock-tip');
+  tip.textContent='⚠ 발표 도우미 앱이 필요합니다 · 발표 탭에서 받으세요';tip.classList.add('warn');
+  clearTimeout(appMissingTimer);
+  appMissingTimer=setTimeout(()=>{tip.classList.remove('warn');tip.textContent=DOCK_TIP;},8000);
+  const tab=document.querySelector('[data-page="presenter"]');
+  if(tab&&!tab.classList.contains('selected'))tab.click();
+  notice(message);   // 탭을 옮기면 안내가 지워지므로 다시 띄운다
+  const box=$('get-win')?.closest('details');
+  if(box){box.open=true;box.scrollIntoView({block:'center',behavior:'smooth'});}
+}
 // 앱 파일은 60MB가 넘는다. Blob 을 또 감싸면 메모리를 두 배로 쓰므로 그대로 쓴다.
 function download(name,data,type){const url=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 async function renderState(s){
@@ -49,7 +63,9 @@ async function renderState(s){
   $('gate-restore').hidden=s.configured;
   $('name-label').hidden=s.configured;$('confirm-label').hidden=s.configured;$('profile-confirm').required=!s.configured;
   $('gate-title').textContent=s.configured?s.name+'입니다':'내 공간의 작은 문지기';
-  $('gate-description').textContent=s.configured?'계속 사용하려면 이 기기의 프로필 PIN을 입력하세요.':'프로필 이름과 PIN을 정해 주세요. 다른 사람이 실수로 내 공간을 사용하는 것을 막아 줍니다.';
+  $('gate-description').textContent=s.configured?'계속 사용하려면 이 기기의 프로필 PIN을 입력하세요.'+(s.lockText?'\n'+s.lockText+'.':''):'프로필 이름과 PIN을 정해 주세요. 다른 사람이 실수로 내 공간을 사용하는 것을 막아 줍니다. 잠금이 필요 없으면 아래 ‘PIN 없이 바로 쓰기’를 누르세요.';
+  $('gate-guest-box').hidden=s.configured;
+  showPinBox(s);
   $('gate-submit').textContent=s.configured?'내 프로필 사용하기 →':'내 공간 만들기 →';
   $('owner').textContent=s.name;$('settings-name').value=s.name;$('idle').value=String(s.idleMinutes);$('start-locked').checked=s.startLocked!==false;$('lock-away').checked=s.lockOnAway!==false;$('wheel-zoom').checked=s.wheelZoom!==false;
   if(s.locked||!s.configured){clearBackupPlan();backupFile=null;closeVault();$('note').value='';$('note-title').value='';$('note-tabs').replaceChildren();$('note-versions').replaceChildren();$('note-images').replaceChildren();editingNote=false;currentNoteId=null;unsavedNote=false;}
@@ -67,6 +83,40 @@ event('gate-form','submit',async e=>{e.preventDefault();const pin=$('profile-pin
     await renderState(s);
   }finally{$('gate-submit').disabled=false;}});
 event('close-window','click',()=>api('close-window'));
+// PIN 없이 쓰는 게스트. 잠금 기능이 모두 빠진다(잠글 PIN 이 없다).
+event('gate-guest','click',async()=>{
+  const s=await api('setup',{guest:true,name:$('profile-name').value.trim()||'게스트'});
+  await renderState(s);
+  notice('PIN 없이 시작했습니다. 잠금이 필요해지면 프로필 설정 → 잠금 PIN 에서 만들 수 있습니다.');
+});
+// 설정의 ‘잠금 PIN’ 칸. 게스트는 PIN 만들기, PIN 이 있으면 바꾸기 · 없애기.
+function showPinBox(s){
+  const guest=!!s.guest;
+  document.querySelectorAll('.lock-only').forEach(node=>{node.hidden=guest;});
+  for(const id of ['lock','lock-now'])if($(id))$(id).hidden=guest||!s.configured;
+  $('pin-title').textContent=guest?'잠금 PIN — 지금은 게스트(잠금 없음)':'잠금 PIN';
+  $('pin-hint').textContent=guest?'PIN 을 만들면 잠금(시작할 때 · 자리를 비웠을 때 · 잠금 단추)을 쓸 수 있습니다.':'PIN 을 바꾸거나, 잠금이 필요 없으면 PIN 없이 쓰기로 바꿀 수 있습니다. 둘 다 지금 PIN 이 필요합니다.';
+  $('pin-current-label').hidden=guest;
+  $('pin-save').textContent=guest?'PIN 만들기':'PIN 바꾸기';
+  $('pin-remove').hidden=guest;
+}
+function clearPinBox(){for(const id of ['pin-current','pin-new','pin-confirm'])$(id).value='';}
+event('pin-form','submit',async e=>{
+  e.preventDefault();
+  const pin=$('pin-new').value;assertPin(pin);
+  if(pin!==$('pin-confirm').value)throw Error('두 PIN이 일치하지 않습니다.');
+  const s=await api('pin-set',{pin,current:$('pin-current').value});
+  clearPinBox();await renderState(s);
+  notice('PIN 을 저장했습니다. 이제 잠금 기능을 쓸 수 있습니다(설정에서 언제 잠글지 고르세요).');
+});
+event('pin-remove','click',async()=>{
+  const current=$('pin-current').value;
+  if(!current)throw Error('‘지금 PIN’ 칸에 지금 PIN 을 넣어 주세요.');
+  if(!confirm('PIN 을 없애고 잠금 없이 쓸까요? 이 컴퓨터를 다른 사람이 쓰면 내 메모와 북마크가 보입니다.'))return;
+  const s=await api('pin-remove',{current});
+  clearPinBox();await renderState(s);
+  notice('PIN 없이 쓰기로 바꿨습니다. 잠금 기능이 꺼졌습니다.');
+});
 event('lock','click',async()=>{await api('lock');});
 event('lock-now','click',async()=>{await api('lock');});
 // ── 늘 보이는 도크 ──────────────────────────────────────────────────────
@@ -296,20 +346,35 @@ event('export-note','click',()=>download(($('note-title').value||'빠른-메모'
 // 되니 남에게 건넬 때 ZIP 하나로 끝난다. 설치는 사람이 해야 한다 — 확장은 남의 컴퓨터에
 // 프로그램을 설치할 수 없다(브라우저가 그렇게 두지 않는다).
 const RELEASES='https://github.com/janghwansangai/daissam-toolkit/releases/latest';
+const RELEASE_API='https://api.github.com/repos/janghwansangai/daissam-toolkit/releases/latest';
+const SITE='https://daissam-toolkit.janhan97.workers.dev/';
 const APPS={
-  mac:{file:'presenter/macos.zip',name:'다있쌤-발표도우미-맥.zip'},
-  win:{file:'presenter/windows.zip',name:'다있쌤-발표도우미-윈도우.zip'}
+  mac:{file:'presenter/macos.zip',name:'다있쌤-발표도우미-맥.zip',asset:'browser-sheriff-presenter-macos-'},
+  win:{file:'presenter/windows.zip',name:'다있쌤-발표도우미-윈도우.zip',asset:'browser-sheriff-presenter-windows-'}
 };
 async function getApp(which,button){
   const app=APPS[which];
   button.classList.add('busy');button.disabled=true;
   const was=button.textContent;button.textContent='준비 중…';
   try{
-    const reply=await fetch(chrome.runtime.getURL(app.file));
-    if(!reply.ok){
-      // 스토어 판에는 앱 파일이 들어 있지 않다(스토어는 실행 파일을 받지 않는다). 릴리스 쪽으로 보낸다.
-      await chrome.tabs.create({url:RELEASES});
-      notice('앱은 릴리스 페이지에서 받습니다. 열린 탭에서 '+(which==='mac'?'macos':'windows')+' 파일을 내려받으세요.');
+    // 스토어 판에는 앱 파일이 들어 있지 않다(스토어는 실행 파일을 받지 않는다). 없는 확장 파일을 fetch 하면
+    // 404 가 아니라 예외가 난다 — 예전에는 그 예외가 그대로 ‘Failed to fetch’ 로 보였다(사용자 보고).
+    let reply=null;
+    try{ reply=await fetch(chrome.runtime.getURL(app.file)); }catch{ reply=null; }
+    if(!reply?.ok){
+      button.textContent='내려받는 중…';
+      try{
+        const rel=await (await fetch(RELEASE_API)).json();
+        const asset=(rel.assets||[]).find(a=>a.name.startsWith(app.asset));
+        if(!asset)throw Error();
+        const file=await fetch(asset.browser_download_url);
+        if(!file.ok)throw Error();
+        download(app.name,await file.blob(),'application/zip');
+        notice(`${app.name} 을 내려받았습니다(${rel.tag_name}). 압축을 풀고 위 설명대로 설치하세요.`);
+      }catch{
+        await chrome.tabs.create({url:SITE+'#download'});
+        notice('열린 다있쌤 사이트에서 ‘'+(which==='mac'?'맥용':'윈도우용')+' 받기’를 눌러 내려받으세요.');
+      }
       return;
     }
     const blob=await reply.blob();
@@ -425,8 +490,8 @@ event('key-reset','click',async()=>{
 async function loadShortcuts(){
   $('key-note').textContent='바꾸려면 키 칸을 누르고 새 조합을 그대로 누르세요. 수정 키(Control·Alt·Shift) 두 개 이상과 글자·숫자 하나를 함께 눌러야 합니다. 브라우저가 먼저 가져가는 조합은 여기서 눌러도 잡히지 않습니다 — 그럴 때는 Control+Alt 조합을 쓰세요.';
   await loadHotkeys().catch(()=>{showHotkeys();});
-  try{const lock=(await chrome.commands.getAll()).find(c=>c.name==='lock-profile');$('lock-key').textContent=lock?.shortcut||'설정 안 됨';}
-  catch{$('lock-key').textContent=THIS_OS==='mac'?'⌘⇧L':'Ctrl+Shift+L';}
+  try{const lock=(await chrome.commands.getAll()).find(c=>c.name==='lock-profile-key');$('lock-key').textContent=lock?.shortcut||'정하지 않음 (chrome://extensions/shortcuts 에서 정할 수 있습니다)';}
+  catch{$('lock-key').textContent='정하지 않음';}
 }
 event('edit-shortcut','click',()=>chrome.tabs.create({url:'chrome://extensions/shortcuts'}));
 const PRESENT_DEFAULTS={dim:45,blur:10,ringSize:44,ring:'#dff39c'};
