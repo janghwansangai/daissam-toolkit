@@ -285,3 +285,7 @@ PR #5 댓글의 사용자 보고(도크 캡처 단추 풍선말이 두 줄)를 �
 1. `ExtensionIDs` 에 `penklhfehmfoebmeolplklmjjcjhhnpi` 를 더한다. 옛 `cgefng…` 도 남겨 둔다(그 항목으로 설치한 사람이 있을 수 있다). 신뢰 확인 · `Check` · `allowed_origins` 는 이미 이 배열을 쓰므로 한 곳이면 된다.
 2. **앱이 켜질 때 등록을 맞춰 두기**(맥 v0.40.2 의 `keepHostRegistered()` 와 같은 일): `native-host.json` 이 없거나, 경로가 다르거나, `allowed_origins` 가 `Origins()` 와 다르면 조용히 다시 쓰고 레지스트리 값도 맞춘다. 지금은 `Install.cmd` 를 다시 돌려야만 고쳐져, 업데이트 뒤에도 옛 목록이 남는다.
 시험: `npm test` 의 `host-pipe` — 이제 두 번째 ID 가 `penkl…` 이라 **고치기 전 exe 로는 실패하는 것이 맞다**. 고친 뒤 통과, 그리고 `Check.cmd` 에 세 ID.
+
+## v0.40.3 — PR #6 합침
+
+v0.40.2 요청 두 가지(스토어 판 ID `penkl…` · 켜질 때 등록 맞추기) **처리됨.** 검토: 설치 자리에서만 고쳐 쓰는 조건 · 레지스트리 맞춤 · 실패는 `Note()` — 결함 없음. 새 요청 없음.
