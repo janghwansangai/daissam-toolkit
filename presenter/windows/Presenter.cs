@@ -2250,8 +2250,11 @@ namespace BrowserSheriff {
     // 도우미를 쓴다(v0.38.0, 맥의 NativeHost.extensionIDs 와 같은 일). 식별자는 계약이므로
     // 값을 바꾸지 말 것 — 바꾸면 이미 깔린 확장이 앱을 찾지 못한다.
     public const string ExtensionID="ehgodopakibamgeopmelemjmjdjhbdgm";        // 개발자 모드 판
-    public const string StoreExtensionID="cgefngalkalghipmhijniclmlpimpmhf";   // 크롬 웹 스토어(비공개) 판
-    public static readonly string[] ExtensionIDs=new[]{ExtensionID,StoreExtensionID};
+    // 게시된 스토어 판은 penkl… 이다(v0.40.2). 처음에 적은 cgefng… 은 먼저 만들었다가 쓰지 않은
+    // 다른 항목이었다 — 그 항목으로 깐 사람이 있을 수 있어 계속 받는다. 순서는 맥과 같다.
+    public const string StoreExtensionID="penklhfehmfoebmeolplklmjjcjhhnpi";   // 게시된 크롬 웹 스토어 판
+    public const string OldStoreExtensionID="cgefngalkalghipmhijniclmlpimpmhf"; // 먼저 만들었던 스토어 항목
+    public static readonly string[] ExtensionIDs=new[]{ExtensionID,StoreExtensionID,OldStoreExtensionID};
     // native-host.json 의 allowed_origins 에 넣을 주소들.
     public static string[] Origins(){
       string[] list=new string[ExtensionIDs.Length];
@@ -2703,12 +2706,12 @@ namespace BrowserSheriff {
 
       if(hasManifest){
         string text="";try{text=File.ReadAllText(manifestPath);}catch{}
-        // 개발자 모드 판과 웹 스토어 판 두 ID 가 모두 등록되어 있어야 한다(v0.38.0).
+        // 개발자 모드 판과 웹 스토어 판 ID 가 모두 등록되어 있어야 한다(v0.38.0, 스토어 판 정정 v0.40.2).
         bool idOk=true;string missing="";
         foreach(string id in NativeHost.ExtensionIDs)
           if(!text.Contains(id)){idOk=false;missing+=(missing.Length>0?", ":"")+id;}
         Line(r,"확장 번호 일치",idOk,
-          idOk?"개발자 모드 판과 웹 스토어 판 둘 다 등록됨\r\n           "+string.Join("\r\n           ",NativeHost.ExtensionIDs)
+          idOk?"개발자 모드 판과 웹 스토어 판 모두 등록됨\r\n           "+string.Join("\r\n           ",NativeHost.ExtensionIDs)
               :"빠진 확장 번호: "+missing+"\r\n           Install.cmd 를 다시 실행하세요.");
       }
 
@@ -2786,6 +2789,42 @@ namespace BrowserSheriff {
           +text+"\r\n\r\n",Encoding.UTF8);
       }catch{}
     }
+    // 앱이 켜질 때마다 클립보드 도우미 등록을 맞춰 둔다(맥 keepHostRegistered 와 같은 일, v0.40.2).
+    // 설명 파일이 없거나, 경로가 이 exe 가 아니거나, allowed_origins 가 Origins() 와 다르거나,
+    // 레지스트리가 그 파일을 가리키지 않으면 조용히 다시 쓴다. 같으면 손대지 않는다.
+    // 예전에는 Install.cmd 를 다시 돌려야만 고쳐져, 확장 ID 가 바뀐 뒤에도 옛 목록이 남아 스토어 판이 막혔다.
+    // 설치된 자리(%LOCALAPPDATA%\BrowserSheriff\Presenter.exe)에서 돌 때만 한다 — 내려받은 폴더에서
+    // 잠깐 켠 exe 가 등록을 그쪽으로 옮겨 가면, 그 폴더를 지운 뒤 연결이 끊긴다.
+    static void KeepHostRegistered(){
+      try{
+        string dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BrowserSheriff");
+        string target=Path.Combine(dir,"Presenter.exe");
+        if(!String.Equals(Application.ExecutablePath,target,StringComparison.OrdinalIgnoreCase))return;
+        string manifestPath=Path.Combine(dir,"native-host.json");
+        string[] origins=NativeHost.Origins();
+        bool same=false;
+        try{
+          using(JsonDocument d=JsonDocument.Parse(File.ReadAllText(manifestPath))){
+            JsonElement root=d.RootElement,p,o;
+            if(root.TryGetProperty("path",out p)&&p.ValueKind==JsonValueKind.String
+               &&String.Equals(p.GetString(),target,StringComparison.OrdinalIgnoreCase)
+               &&root.TryGetProperty("allowed_origins",out o)&&o.ValueKind==JsonValueKind.Array
+               &&o.GetArrayLength()==origins.Length){
+              same=true;int i=0;
+              foreach(JsonElement e in o.EnumerateArray()){if(e.ValueKind!=JsonValueKind.String||e.GetString()!=origins[i]){same=false;break;}i++;}
+            }
+          }
+        }catch{}
+        if(!same)File.WriteAllText(manifestPath,JsonSerializer.Serialize(new{
+          name=NativeHost.HostName,description="다있쌤 클립보드 도우미",path=target,type="stdio",
+          allowed_origins=origins}));
+        string key=@"Software\Google\Chrome\NativeMessagingHosts\"+NativeHost.HostName;
+        string registered=null;
+        using(RegistryKey k=Registry.CurrentUser.OpenSubKey(key))if(k!=null)registered=Convert.ToString(k.GetValue(""));
+        if(!String.Equals(registered,manifestPath,StringComparison.OrdinalIgnoreCase))
+          using(RegistryKey k=Registry.CurrentUser.CreateSubKey(key)){k.SetValue("",manifestPath);}
+      }catch(Exception why){Note(why);}
+    }
     [STAThread] public static void Main(string[] args){
       if(args.Length>0&&args[0].StartsWith("chrome-extension://",StringComparison.Ordinal)){NativeHost.Run(args);return;}
       // 어디서 막히는지 한 번에 알려 준다. VMware 같은 가상 화면에서는 확대 API 자체가
@@ -2823,6 +2862,7 @@ namespace BrowserSheriff {
         // 가므로 조용히 물러난다. 여기서 Activate 를 울리면 누르지도 않은 발표가 시작된다.
         if(!created&&quiet)return;
         if(!created){try{using(EventWaitHandle signal=EventWaitHandle.OpenExisting("Local\\BrowserSheriffPresenterActivate")){signal.Set();}}catch(WaitHandleCannotBeOpenedException){MessageBox.Show("발표 도우미가 시작 중입니다. 트레이에서 발표 시작을 선택하세요.");}return;}
+        KeepHostRegistered();
         bool startRequested=args.Length>0&&args[0].StartsWith("browsersheriff://presenter",StringComparison.OrdinalIgnoreCase);
         using(EventWaitHandle activation=new EventWaitHandle(false,EventResetMode.AutoReset,"Local\\BrowserSheriffPresenterActivate"))
         using(EventWaitHandle command=new EventWaitHandle(false,EventResetMode.AutoReset,Presenter.CommandEvent))
