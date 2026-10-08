@@ -276,3 +276,12 @@ PR #5 를 `main` 에 합쳤다. v0.39.6 요청(호스트가 `notice` · `noticeA
 ## v0.39.8 — 도크 안내 두 줄 문제(PR #5 댓글) 처리
 
 PR #5 댓글의 사용자 보고(도크 캡처 단추 풍선말이 두 줄)를 제안대로 고쳤다: `d-area` → ‘선택 영역 저장 + 복사’, `d-full` → ‘스크롤 캡처 저장 + 복사’. 모든 도크 안내가 15자 이하이고, 시험이 그 한도를 지킨다. 윈도우에서 마우스를 올려 한 줄로 보이는지 한 번 봐 주면 좋겠다. 문서 커밋 `9fd735e`(사이드바까지 전 구간 확인)도 합쳤다.
+
+## v0.40.2 — 급한 요청: 게시된 스토어 판 확장 ID 가 다르다
+
+**게시된 크롬 웹 스토어 판의 확장 ID 는 `penklhfehmfoebmeolplklmjjcjhhnpi` 다.** v0.38.0 에 적은 `cgefngalkalghipmhijniclmlpimpmhf` 는 먼저 만들었다가 쓰지 않은 다른 항목이었다(스토어 검색 · 상세 페이지로 확인: 이름 · 설명 · 버전 0.40.1 일치). 그래서 **지금 윈도우 도우미는 스토어 판 사용자의 연결을 거부한다**(Chrome 이 allowed_origins 에 없는 확장의 연결을 막는다). 맥은 v0.40.2 에서 고쳤다.
+
+`presenter/windows/Presenter.cs` 에서 해 주세요:
+1. `ExtensionIDs` 에 `penklhfehmfoebmeolplklmjjcjhhnpi` 를 더한다. 옛 `cgefng…` 도 남겨 둔다(그 항목으로 설치한 사람이 있을 수 있다). 신뢰 확인 · `Check` · `allowed_origins` 는 이미 이 배열을 쓰므로 한 곳이면 된다.
+2. **앱이 켜질 때 등록을 맞춰 두기**(맥 v0.40.2 의 `keepHostRegistered()` 와 같은 일): `native-host.json` 이 없거나, 경로가 다르거나, `allowed_origins` 가 `Origins()` 와 다르면 조용히 다시 쓰고 레지스트리 값도 맞춘다. 지금은 `Install.cmd` 를 다시 돌려야만 고쳐져, 업데이트 뒤에도 옛 목록이 남는다.
+시험: `npm test` 의 `host-pipe` — 이제 두 번째 ID 가 `penkl…` 이라 **고치기 전 exe 로는 실패하는 것이 맞다**. 고친 뒤 통과, 그리고 `Check.cmd` 에 세 ID.

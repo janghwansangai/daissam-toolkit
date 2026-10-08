@@ -9,7 +9,7 @@ import {Chrome, sleep} from '../tests/e2e/cdp.mjs';
 const version = JSON.parse(fs.readFileSync('extension/manifest.json', 'utf8')).version;
 const OUT = 'site';
 const REPO = 'janghwansangai/daissam-toolkit';
-const STORE = 'https://chromewebstore.google.com/detail/cgefngalkalghipmhijniclmlpimpmhf';
+const STORE = 'https://chromewebstore.google.com/detail/penklhfehmfoebmeolplklmjjcjhhnpi';
 fs.rmSync(OUT, {recursive: true, force: true});
 fs.mkdirSync(OUT + '/img', {recursive: true});
 

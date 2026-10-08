@@ -19,7 +19,9 @@ const skip = !BUILT || !BIN || !existsSync(BIN) ? '맥이나 윈도우에서 도
 const posix = process.platform !== 'win32';
 // 계약: 두 확장 ID(개발자 모드 판 · 크롬 웹 스토어 판)만 도우미를 부를 수 있다. 값을 바꾸지 말 것.
 const DEV_ID = 'chrome-extension://ehgodopakibamgeopmelemjmjdjhbdgm/';
-const STORE_ID = 'chrome-extension://cgefngalkalghipmhijniclmlpimpmhf/';
+// 게시된 스토어 판(2026-10 확인 — 처음에 받아 둔 cgefng… 은 다른 항목이었다). 예전 항목 ID 도 계속 받는다.
+const STORE_ID = 'chrome-extension://penklhfehmfoebmeolplklmjjcjhhnpi/';
+const OLD_STORE_ID = 'chrome-extension://cgefngalkalghipmhijniclmlpimpmhf/';
 const STRANGER = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/';
 const frame = object => { const data = Buffer.from(JSON.stringify(object)); const head = Buffer.alloc(4); head.writeUInt32LE(data.length); return Buffer.concat([head, data]); };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -70,7 +72,7 @@ for (const ignoreSigpipe of posix ? [true, false] : [false]) {
   });
 }
 test('통로가 열려 있으면 평소처럼 답한다(대조) · 두 확장 ID 모두', {skip, timeout: 30000}, async () => {
-  for (const origin of [DEV_ID, STORE_ID]) {
+  for (const origin of process.platform === 'darwin' ? [DEV_ID, STORE_ID, OLD_STORE_ID] : [DEV_ID, STORE_ID]) {
     const {reply, ended} = await ask(origin, {type: 'nope'});
     assert.ok(reply, `${origin} 에 답이 없다(이 ID 를 믿지 않는다)`);
     assert.equal(reply.kind, 'unknown');

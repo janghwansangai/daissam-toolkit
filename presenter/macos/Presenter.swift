@@ -436,6 +436,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
     // 조각을 내는 동안 확대·집중 모드를 잠시 끄고, 끝나면 이 값으로 되돌린다.
     var snipRestore:(CGFloat,Bool)?
     func applicationDidFinishLaunching(_ notification: Notification) {
+        keepHostRegistered()
         status=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         if let symbol=NSImage(systemSymbolName:"plus.magnifyingglass",accessibilityDescription:"다있쌤 발표 도우미") {
             symbol.isTemplate=true;status.button?.image=symbol;status.button?.title=""
@@ -748,6 +749,20 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
     var hostManifest: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Google/Chrome/NativeMessagingHosts/app.browsersheriff.presenter.json")
+    }
+    // 앱이 켜질 때마다 클립보드 도우미 등록을 맞춰 둔다. 등록이 없거나, 앱을 옮겼거나, 받는 확장 ID 가 바뀌었으면
+    // (스토어 판 ID 를 잘못 알고 있던 것을 v0.40.2 에서 바로잡았다) 조용히 다시 쓴다. 같으면 손대지 않는다.
+    // 예전에는 메뉴의 '등록' 을 사람이 눌러야만 했고, 업데이트 뒤에도 옛 목록이 남아 스토어 판이 막혔다.
+    func keepHostRegistered(){
+        guard let path=Bundle.main.executablePath else {return}
+        let origins=NativeHost.extensionIDs.map{"chrome-extension://\($0)/"}
+        if let data=try? Data(contentsOf:hostManifest),
+           let now=try? JSONSerialization.jsonObject(with:data) as? [String:Any],
+           now["path"] as? String==path, (now["allowed_origins"] as? [String]) ?? []==origins { return }
+        let manifest: [String:Any]=["name":"app.browsersheriff.presenter","description":"다있쌤 클립보드 도우미",
+                                    "path":path,"type":"stdio","allowed_origins":origins]
+        try? FileManager.default.createDirectory(at:hostManifest.deletingLastPathComponent(),withIntermediateDirectories:true)
+        try? JSONSerialization.data(withJSONObject:manifest,options:[.prettyPrinted]).write(to:hostManifest)
     }
     @objc func registerHost(){
         guard let path=Bundle.main.executablePath else {showError("앱 경로를 찾을 수 없습니다.");return}
@@ -2403,7 +2418,7 @@ enum Shots {
 
 enum NativeHost {
     // 직접 올린(개발자 모드) 판과 크롬 웹 스토어 판은 확장 ID 가 다르다. 둘 다 받아들인다.
-    static let extensionIDs = ["ehgodopakibamgeopmelemjmjdjhbdgm","cgefngalkalghipmhijniclmlpimpmhf"]
+    static let extensionIDs = ["ehgodopakibamgeopmelemjmjdjhbdgm","penklhfehmfoebmeolplklmjjcjhhnpi","cgefngalkalghipmhijniclmlpimpmhf"]  // 개발자 모드 판 · 게시된 스토어 판 · 먼저 만들었던 스토어 항목
     static let prefix = "다있쌤-캡처-"
     static let oldPrefix = "보완관-캡처-"        // 이름을 바꾸기 전 파일
     static let out = FileHandle.standardOutput
