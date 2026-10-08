@@ -65,6 +65,7 @@ async function renderState(s){
   $('gate-title').textContent=s.configured?s.name+'입니다':'내 공간의 작은 문지기';
   $('gate-description').textContent=s.configured?'계속 사용하려면 이 기기의 프로필 PIN을 입력하세요.'+(s.lockText?'\n'+s.lockText+'.':''):'프로필 이름과 PIN을 정해 주세요. 다른 사람이 실수로 내 공간을 사용하는 것을 막아 줍니다. 잠금이 필요 없으면 아래 ‘PIN 없이 바로 쓰기’를 누르세요.';
   $('gate-guest-box').hidden=s.configured;
+  $('gate-app').hidden=s.configured;
   showPinBox(s);
   $('gate-submit').textContent=s.configured?'내 프로필 사용하기 →':'내 공간 만들기 →';
   $('owner').textContent=s.name;$('settings-name').value=s.name;$('idle').value=String(s.idleMinutes);$('start-locked').checked=s.startLocked!==false;$('lock-away').checked=s.lockOnAway!==false;$('wheel-zoom').checked=s.wheelZoom!==false;
@@ -384,6 +385,12 @@ async function getApp(which,button){
   } finally { button.classList.remove('busy');button.disabled=false;button.textContent=was; }
 }
 event('get-mac','click',e=>getApp('mac',e.currentTarget));
+// 처음 화면에서도 바로 받게 한다(스토어로 설치하면 앱이 따로라 처음에 알려야 한다 — 사용자 요청). 이 컴퓨터에 맞는 쪽.
+{
+  const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
+  $('gate-get-app').textContent=mac?'맥용 발표 도우미 앱 받기':'윈도우용 발표 도우미 앱 받기';
+  event('gate-get-app','click',e=>getApp(mac?'mac':'win',e.currentTarget));
+}
 event('get-win','click',e=>getApp('win',e.currentTarget));
 // 쓰는 컴퓨터에 맞는 쪽을 먼저 보여 준다.
 (()=>{

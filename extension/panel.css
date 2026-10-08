@@ -153,3 +153,4 @@ body.capturing .cap-tile,body.capturing .cap-row,body.capturing #dock-cap-area,b
 #gate-restore-box{margin-top:6px}
 .dock-tip.warn{color:#c2412d;font-weight:700}
 #gate-description{white-space:pre-line}
+.gate-app{margin-top:18px;padding:14px 16px;border:1px solid var(--line);border-radius:14px}.gate-app h3{margin:0 0 4px;font-size:1rem}
