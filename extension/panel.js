@@ -1021,7 +1021,29 @@ async function runCapture(mode,after,hint){
 }
 event('cap-visible','click',()=>runCapture('visible','','보이는 부분을 찍는 중…'));
 event('cap-full','click',()=>runCapture('full','','페이지를 내려가며 찍는 중… 끝날 때까지 페이지를 건드리지 마세요.'));
-event('cap-area','click',()=>runCapture('area','','페이지에서 끌어 캡처할 곳을 고르세요. Esc 로 그만둡니다.'));
+// 끌어서 고르기는 단추 하나다(예전의 ‘화면 영역 · 다른 앱 · 다른 모니터’ 를 합쳤다 — 사용자와 정한 정리안).
+// 발표 도우미 앱이 있으면 화면 전체에서 고르고(다른 앱 · 다른 모니터도, 고른 곳은 폴더 저장 + 복사),
+// 없으면 이 탭 안에서 고른다(‘캡처 후’ 설정대로). 앱은 고른 그림을 파일로 저장하므로 편집기로 바로 열 수 없다.
+event('cap-area','click',async()=>{
+  try{
+    await api('presenter-command',{action:'snip-save'});
+    capSay('화면에서 끌어 고르세요 · Esc 로 그만둡니다. 다른 앱·다른 모니터도 됩니다 — 고른 곳은 ‘캡처이미지’ 폴더에 저장하고 복사합니다.');
+    showAreaMode(true);
+    return;
+  }catch{ showAreaMode(false); }
+  await runCapture('area','','페이지에서 끌어 캡처할 곳을 고르세요. Esc 로 그만둡니다.');
+});
+// 선택 영역 단추가 지금 어느 방식으로 찍는지 단추 아래에 적는다. 같은 단추가 앱 유무에 따라 달리 움직이므로
+// 보여 주지 않으면 헷갈린다(사용자 보고).
+function showAreaMode(app){
+  $('cap-area-mode').replaceChildren();
+  const b=document.createElement('b');
+  b.textContent=app?'선택 영역: 화면 전체에서 고릅니다':'선택 영역: 이 탭 안에서 고릅니다';
+  $('cap-area-mode').append(b,app?' — 다른 앱 · 다른 모니터도. 고른 곳은 캡처이미지 폴더 저장 + 복사(발표 도우미).':' — 다른 앱 · 다른 모니터까지 고르려면 발표 도우미 앱을 설치하세요(발표 탭).');
+}
+async function checkAreaMode(){
+  try{ await api('presenter-command',{action:'state'}); showAreaMode(true); }catch{ showAreaMode(false); }
+}
 event('cap-delay','click',()=>runCapture('delay','',`${$('cap-delay-sec').value}초 뒤에 찍습니다. 원하는 화면을 띄워 두세요(확장 아이콘에 남은 초가 보입니다).`));
 event('cap-ocr','click',()=>runCapture('ocr','','글자를 뽑을 곳을 페이지에서 끌어 고르세요.'));
 // 도크의 빠른 캡처 두 개: 설정과 상관없이 늘 폴더 저장 + 클립보드 복사(바로 붙여넣기).
@@ -1051,13 +1073,6 @@ event('cap-screen','click',async()=>{
   const result=await deliver(blob,capOptions.after,{mode:'screen',title:'전체 화면'});
   capSay(result.after==='editor'?(result.fallback?'편집기로 열었습니다 — '+result.fallback:'편집기로 열었습니다.')
     :[result.path?'캡처이미지 폴더에 저장했습니다.':'',result.copied?'클립보드에 복사했습니다.':''].join(' '));
-});
-// 브라우저 밖까지 끌어 고른다. 발표 도우미 앱이 화면을 직접 찍어 폴더 저장 + 복사한다.
-// (확장의 captureVisibleTab 은 탭 안만 찍을 수 있어 다른 앱·다른 모니터를 담지 못한다.)
-event('cap-screen-area','click',async()=>{
-  capSay('화면에서 끌어 고르세요 · Esc 로 그만둡니다. 다른 모니터도 됩니다.');
-  try{ await api('presenter-command',{action:'snip-save'}); capSay('고른 곳을 ‘캡처이미지’ 폴더에 저장하고 복사합니다.'); }
-  catch(error){ capSay(error.message); }
 });
 event('cap-local','click',()=>chrome.tabs.create({url:chrome.runtime.getURL('capture.html#new')}));
 event('cap-keys','click',()=>chrome.tabs.create({url:'chrome://extensions/shortcuts'}));
@@ -1126,6 +1141,7 @@ function watchDevices(show,current,load){
   return current;
 }
 function pageShown(name){
+  if(name==='capture')checkAreaMode();
   capDevices=watchDevices(name==='capture',capDevices,()=>(captureReady||Promise.resolve()).then(listRecDevices));
   micDevices=watchDevices(name==='tools'&&$('tool-rec').open,micDevices,recListMics);
 }

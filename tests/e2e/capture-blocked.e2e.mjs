@@ -57,6 +57,12 @@ await panel.eval(`chrome.tabs.update(${all.find(t => t.url === 'http://127.0.0.1
 r = await send({type: 'capture', mode: 'visible'}); await sleep(1200);
 all = await tabs();
 ok('[웹페이지] 보이는 부분은 예전처럼 바로 편집기로 연다', r.ok && !r.data?.redirected && /편집기/.test(r.data?.message || ''), r);
+// 정리안: 끌어서 고르기는 ‘선택 영역’ 하나. 앱이 없으면 단추 아래에 ‘이 탭 안’ 이라고 적는다.
+await panel.eval(`document.querySelector('[data-page="capture"]').click()`); await sleep(1500);
+const ui = await panel.eval(`({area:!!document.getElementById('cap-area'),merged:!document.getElementById('cap-screen-area'),mode:document.getElementById('cap-area-mode').textContent,whole:document.getElementById('cap-screen').textContent})`);
+ok('캡처 탭: ‘화면 영역’ 단추가 선택 영역에 합쳐졌다', ui.area && ui.merged, ui);
+ok('캡처 탭: 선택 영역이 지금 어느 방식인지 적혀 있다(앱 없음 → 이 탭 안)', /이 탭 안/.test(ui.mode) && /발표 도우미 앱을 설치/.test(ui.mode), ui.mode);
+ok('캡처 탭: 통째로 찍는 단추 이름이 바뀌었다', /화면 · 창 통째로/.test(ui.whole), ui.whole);
 await C.stop();
 // ‘화면 고르기’ 창이 고른 화면을 찍어 편집기(자르기)로 여는지. 헤드리스 Chrome 은 실제 화면 공유를 못 하므로
 // Chrome 의 고르기 대신 가짜 화면(캔버스 스트림)을 넣고, 그 뒤의 우리 코드(한 장 찍기 → 보내기)를 본다.

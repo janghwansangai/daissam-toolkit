@@ -217,7 +217,10 @@ test('도크의 ☰ 는 보통 창을 찾아 사이드바를 연다', () => {
 test('도크와 캡처 탭에서 화면 전체를 끌어 고를 수 있다', () => {
   const panel = readFileSync('extension/panel.js', 'utf8');
   const html = readFileSync('extension/panel.html', 'utf8');
-  assert.match(html, /id="cap-screen-area"/);
+  // 끌어서 고르기는 단추 하나(선택 영역)로 합쳤다 — 앱이 있으면 화면 전체, 없으면 이 탭 안.
+  assert.doesNotMatch(html, /id="cap-screen-area"/, '‘화면 영역’ 단추는 선택 영역에 합쳤다');
+  assert.match(html, /id="cap-area-mode"/, '선택 영역이 지금 어느 방식인지 보여 준다');
+  assert.match(panel, /event\('cap-area','click',async\(\)=>\{\n  try\{\n    await api\('presenter-command',\{action:'snip-save'\}\)/, '캡처 탭 선택 영역도 앱을 먼저 쓴다');
   assert.equal((panel.match(/action:'snip-save'/g) || []).length, 2, '캡처 탭과 도크 둘 다');
   assert.match(readFileSync('extension/dock.js', 'utf8'), /present\('snip-save'\)/);
 });
