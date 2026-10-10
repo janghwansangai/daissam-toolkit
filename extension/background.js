@@ -1,7 +1,7 @@
 import {seal,unseal,assertPin} from './lib/crypto.js';
 import {validateNote,checkQuota,noteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES} from './lib/data.js';
 import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,IMAGES_PER_NOTE,IMAGES_TOTAL} from './lib/backup.js';
-import {captureAndDeliver,targetTab,pickTabArea} from './capture-core.js';
+import {captureAndDeliver,targetTab,pickTabArea,TAB_BLOCKED} from './capture-core.js';
 const RULE=701;
 const HOST='app.browsersheriff.presenter';
 // 개발자 모드로 올린 판의 확장 ID. 스토어 판과 함께 깔려 있으면 잠금 화면이 둘 겹칠 수 있어 잠금 화면에 어느 판인지 적는다.
@@ -505,9 +505,29 @@ async function runCapture(mode,{after,notify,widen}={}){
     return {...result,message:text};
   }catch(error){
     const done=away;away=null;
+    // 확장이 직접 찍지 못하는 화면(주소 없는 창 · 새 탭 · 설정 등). 오류로 끝내지 않고 다른 길로 찍는다.
+    if(error?.message===TAB_BLOCKED){
+      const text=await blockedCapture(mode,after);
+      await captureDone(done,text,notify?'다있쌤 캡처':'');
+      return {redirected:true,message:text};
+    }
     await captureDone(done,String(error?.message||error),notify?'캡처하지 못했습니다':'');
     throw error;
   }finally{ if(away)await away.back(true); }
+}
+// 이 탭은 Chrome 이 확장에게 찍게 두지 않는다. ① 선택 영역이고 발표 도우미 앱이 있으면 앱이 화면에서 직접 고른다
+// (다른 앱 · 다른 모니터도 된다). ② 그 밖에는 작은 창을 띄워 '화면 고르기'(Chrome 의 화면 공유 고르기)로 찍는다
+// — 그 고르기는 어떤 탭 · 창 · 화면이든 담을 수 있다. 누른 손길이 있어야 열리므로 그 창의 단추로 연다.
+async function blockedCapture(mode,after){
+  if(mode==='area'){
+    try{
+      const reply=await presenterSay({type:'presenter',action:'snip-save'});
+      if(reply?.ok!==false)return '이 화면은 Chrome 이 확장에게 바로 찍게 두지 않아 발표 도우미로 고릅니다 — 끌어 고르면 ‘캡처이미지’ 폴더에 저장하고 복사합니다.';
+    }catch{}
+  }
+  const hash=new URLSearchParams({mode,after:after||''}).toString();
+  await chrome.windows.create({url:chrome.runtime.getURL('grab.html')+'#'+hash,type:'popup',width:440,height:360,focused:true});
+  return '이 화면은 Chrome 이 확장에게 바로 찍게 두지 않습니다. 열린 작은 창에서 ‘화면 고르기’ 를 누르고 찍을 탭이나 화면을 고르세요.';
 }
 async function quickCapture(mode){ return runCapture(mode,{notify:true,widen:true}); }
 // 발표 명령을 보내는 '오래 여는 통로'. sendNativeMessage 는 부를 때마다 도우미 프로세스를

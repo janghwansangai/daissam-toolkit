@@ -34,21 +34,36 @@ export async function targetTab({strict = false} = {}) {
     // 그 밖은 Chrome 이 보호하는 페이지다(새 탭·설정·확장 프로그램·웹 스토어).
     throw new Error('CHROME_PAGE');
   }
-  // 따로 띄운 도크 창에서 부르면 '마지막 초점 창' 이 그 도크(팝업)라 아무 탭도 잡히지 않았다
-  // — '캡처할 탭을 찾지 못했습니다' 의 원인. 앞에 있는 것이 편집기처럼 찍을 수 없는 탭일 때도
-  // 마찬가지다. 그럴 때는 다른 보통 창에서 마지막에 쓰던 웹페이지를 찾는다.
-  if (!isWeb(tab)) {
+  // 찍는 것은 '지금 보고 있는 창' 의 탭이다. 예전에는 그 탭이 http(s) 가 아니면 다른 창의 웹페이지를 찾아가
+  // 그 창이 갑자기 앞으로 나왔다(사용자 보고: '한 번씩 다른 창이 활성화되면서 그 창에서 캡처하라는 오류').
+  // 확장은 tabs 권한이 없어 about:blank · data: · chrome:// 같은 탭의 주소를 볼 수 없다 — 주소로 가리지 않고
+  // 실제로 찍어 보고(canGrab) 막히면 다른 길(화면 고르기 · 발표 도우미)로 간다.
+  // 다른 창에서 찾는 것은 앞에 있는 창이 따로 띄운 도크(팝업)라 보통 창의 탭이 잡히지 않을 때뿐이다.
+  if (!tab) {
     const normals = await chrome.tabs.query({active: true, windowType: 'normal'});
-    const usable = normals.filter(isWeb);
     let last = 0;
     try { last = (await chrome.storage.session.get('lastNormalWindow')).lastNormalWindow || 0; } catch {}
-    tab = usable.find(one => one.windowId === last) || usable[usable.length - 1] || tab;
+    tab = normals.find(one => one.windowId === last) || normals[normals.length - 1];
   }
   if (!tab) throw new Error('캡처할 탭을 찾지 못했습니다. 브라우저 창을 하나 열어 두고 다시 해 주세요.');
-  if (!isWeb(tab))
-    throw new Error('이 탭은 캡처할 수 없습니다. 새 탭·Chrome 설정·웹 스토어는 Chrome 이 막아 둡니다. 일반 웹페이지에서 해 주세요.\n바탕화면이나 다른 앱은 ‘전체 화면·앱 창’ 을 쓰세요.');
+  // 앞에 있는 것이 우리 편집기 같은 확장 페이지면 같은 창에서 가장 최근에 보던 웹페이지를 찍는다.
+  if ((tab.url || '').startsWith(chrome.runtime.getURL(''))) {
+    const web = await chrome.tabs.query({windowId: tab.windowId, url: ['http://*/*', 'https://*/*']});
+    const recent = web.sort((a, b) => (a.lastAccessed || 0) - (b.lastAccessed || 0)).pop();
+    if (recent) { await chrome.tabs.update(recent.id, {active: true}); return recent; }
+  }
   return tab;
 }
+
+// Chrome 이 이 탭을 확장에게 찍게 해 주는지 한 번 찍어 본다. 막히면 false.
+// (주소 없는 창 about:blank · data: · 새 탭 · chrome:// 설정 · 웹 스토어 · 다른 확장 페이지)
+const DENIED = /Cannot access|activeTab|permission|chrome:\/\/|extensions gallery|webstore/i;
+async function canGrab(windowId) {
+  try { await grab(windowId); return true; }
+  catch (error) { if (DENIED.test(String(error?.message))) return false; throw error; }
+}
+// 이 탭은 확장이 못 찍는다 — background 가 받아 '화면 고르기' 로 넘긴다.
+export const TAB_BLOCKED = 'TAB_BLOCKED';
 
 // captureVisibleTab 은 1초에 두 번까지만 된다. 넘으면 Chrome 이 거절한다.
 let lastGrab = 0;
@@ -257,6 +272,17 @@ export async function captureAndDeliver(mode, overrides = {}, progress = () => {
   await bringUp(tab);
   // 사이드바를 닫는 중이면 페이지가 넓어질 때까지 기다린다. 그러지 않으면 좁은 채로 찍힌다.
   if (overrides.widen) await waitWider(tab.id).catch(() => {});
+  if (!(await canGrab(tab.windowId))) { const error = new Error(TAB_BLOCKED); error.mode = mode; throw error; }
+  // 찍기는 되는데 페이지 안에 들어갈 수 없는 탭(data: 등)도 있다. 그때는 고르기 · 스크롤을 못 하므로
+  // 보이는 부분을 찍어 편집기에서 자르게 한다.
+  const reachable = await inPage(tab.id, () => true).then(() => true, () => false);
+  if (!reachable) {
+    const blob = await shootVisible(tab, options);
+    const after = mode === 'area' ? 'crop' : mode === 'ocr' ? 'ocr' : mode === 'full' ? 'editor' : options.after;
+    const result = await deliver(blob, after, {title: tab.title || '', url: tab.url || '', mode});
+    return {...result, tabId: tab.id, bytes: blob.size,
+      ...(mode === 'full' ? {fallback: '이 페이지는 스크롤해 이어 찍을 수 없어 보이는 부분만 담았습니다'} : {})};
+  }
   const ready = await inPage(tab.id, readyToShoot).catch(() => ({visible: true}));
   if (ready && ready.visible === false)
     throw new Error('캡처할 탭이 화면에 보이지 않습니다. 그 창을 앞으로 가져온 뒤 다시 해 주세요.');

@@ -451,5 +451,6 @@ async function start() {
   document.title = '다있쌤 캡처' + (title ? ' · ' + title : '');
   await loadBlob(shot.blob);
   if (extra.get('ocr') === '1') extract();
+  if (extra.get('crop') === '1') { pickTool('crop'); $('banner').textContent = '남길 곳을 끌어 고른 뒤 ✓ 자르기를 누르세요. (이 화면은 페이지 위에서 바로 고를 수 없어 편집기에서 자릅니다)'; $('banner').hidden = false; }
 }
 start().catch(error => toast('열지 못했습니다: ' + error.message, true));

@@ -89,6 +89,7 @@ export async function deliver(blob, after, meta = {}) {
     }
   }
   const id = await putShot(blob, meta);
-  await chrome.tabs.create({url: editorURL(id, after === 'ocr' ? '&ocr=1' : '')});
+  // crop: 페이지 안에서 고를 수 없던 캡처 — 편집기를 자르기 도구로 연다.
+  await chrome.tabs.create({url: editorURL(id, after === 'ocr' ? '&ocr=1' : after === 'crop' ? '&crop=1' : '')});
   return {after: after === 'ocr' ? 'ocr' : 'editor'};
 }

@@ -1,0 +1,14 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>다있쌤 · 화면 고르기</title>
+<style>
+body{margin:0;font:14px/1.6 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Segoe UI','Malgun Gothic',sans-serif;background:#f8faf3;color:#173b36}
+main{padding:20px 22px}h1{font-size:17px;margin:0 0 8px}p{margin:0 0 12px;color:#4d5f57}
+button{font:inherit;border:0;border-radius:12px;padding:12px 16px;cursor:pointer}
+#go{width:100%;background:#173b36;color:#f6f9e9;font-weight:700;font-size:15px}#go:disabled{opacity:.6}
+#cancel{width:100%;margin-top:8px;background:#e7ecdf;color:#173b36}#say{min-height:22px;font-size:13px;color:#8a4b2d}
+</style></head><body><main>
+<h1>이 화면은 바로 찍을 수 없어요</h1>
+<p>주소 없는 창 · 새 탭 · Chrome 설정 같은 화면은 Chrome 이 확장에게 바로 찍게 두지 않습니다. 아래 단추를 누르고, 뜨는 창에서 <b>찍을 탭이나 창 · 전체 화면</b>을 고르세요. 고른 화면을 그대로 찍습니다.</p>
+<button id="go" type="button">화면 고르기</button>
+<button id="cancel" type="button">그만두기</button>
+<p id="say"></p>
+</main><script type="module" src="grab.js"></script></body></html>
