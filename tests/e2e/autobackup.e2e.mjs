@@ -124,6 +124,6 @@ ok('도우미가 없으면 자동 백업 칸이 앱 설치를 안내한다', /�
 r = await send(n, 'auto-backup-now');
 ok('도우미 없이 ‘지금 백업’ 은 이유를 말하며 실패한다', !r.ok && /발표 도우미/.test(r.error || ''), r);
 await N.stop();
-fs.rmSync(root, {recursive: true, force: true});
+try { fs.rmSync(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 300}); } catch {}
 console.log(failed ? `실패 ${failed}건` : '모두 통과');
 process.exit(failed ? 1 : 0);

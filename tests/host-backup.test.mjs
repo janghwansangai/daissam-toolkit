@@ -53,7 +53,8 @@ test('자동 백업: 저장 · 목록 · 나눠 읽기 · 지우기 계약', {sk
     assert.equal(fs.readFileSync(path.join(dir, NAME), 'utf8'), big, '쓴 내용이 그대로다');
     assert.equal(r.bytes, Buffer.byteLength(big));
     for (const bad of ['../evil.json', 'daissam-backup_2026-10-17_14-30-05_change_ab12cd.json/../../x.json', 'notes.json',
-      'daissam-backup_2026-10-17_14-30-05_weird_ab12cd.json', 'daissam-backup_2026-10-17_14-30-05_change_AB12CD.json', '']) {
+      'daissam-backup_2026-10-17_14-30-05_weird_ab12cd.json', 'daissam-backup_2026-10-17_14-30-05_change_AB12CD.json', '',
+      NAME.replace('14-30-05', '14-30-09') + '\n']) {   // 끝의 줄바꿈: 정규식 $ 는 그 앞에서도 맞는다 — \z 로 막는다
       r = await h.say({type: 'backup-save', name: bad, text: body()});
       assert.equal(r.ok, false, '이상한 이름을 받았다: ' + bad);
     }

@@ -2639,7 +2639,7 @@ enum NativeHost {
     // 확장은 문서 폴더에 쓸 수 없어 이 도우미가 쓴다. 확장을 지웠다 다시 깔아도 파일은 남는다.
     // 이름은 확장이 정하고 여기서는 정해진 모양만 받는다(폴더 밖으로 나가는 이름 · 다른 파일은 절대 건드리지 않는다).
     // 시험에서는 DAISSAM_BACKUP_DIR 로 다른 폴더를 쓴다(사용자의 문서 폴더를 어지럽히지 않게).
-    static let backupPattern = try! NSRegularExpression(pattern:"^daissam-backup_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}_(daily|change|manual|before-restore)_[0-9a-f]{6}\\.json$")
+    static let backupPattern = try! NSRegularExpression(pattern:"^daissam-backup_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}_(daily|change|manual|before-restore)_[0-9a-f]{6}\\.json\\z")  // \\z: 끝의 줄바꿈 앞에서 맞지 않게(윈도우 세션 지적, v0.41.1)
     static func backupName(_ value: Any?) -> String? {
         guard let name = value as? String, name.utf16.count < 120 else { return nil }
         return backupPattern.firstMatch(in:name, range:NSRange(location:0, length:name.utf16.count)) != nil ? name : nil
