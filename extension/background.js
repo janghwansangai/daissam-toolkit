@@ -1,6 +1,7 @@
 import {seal,unseal,assertPin} from './lib/crypto.js';
 import {validateNote,checkQuota,noteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES} from './lib/data.js';
-import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,IMAGES_PER_NOTE,IMAGES_TOTAL} from './lib/backup.js';
+import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,collectBackup,plainBackup,openBackup,IMAGES_PER_NOTE,IMAGES_TOTAL} from './lib/backup.js';
+import {backupName,sortBackups,pruneList,fingerprint,worthKeeping,deviceTag,READ_CHUNK,CHANGE_GAP_MINUTES} from './lib/autobackup.js';
 import {captureAndDeliver,targetTab,pickTabArea,TAB_BLOCKED} from './capture-core.js';
 const RULE=701;
 const HOST='app.browsersheriff.presenter';
@@ -135,6 +136,7 @@ async function initialize() {
   const p=await profile();
   if(p?.idleMinutes) chrome.idle.setDetectionInterval(p.idleMinutes*60);
   await optional(settleFlushAlarm);
+  await optional(async()=>{ if(!(await chrome.alarms.get('auto-backup-daily')))await chrome.alarms.create('auto-backup-daily',{delayInMinutes:180,periodInMinutes:180}); });
   // 이미 열려 있던 탭에 잠금 화면(guard.js)을 넣는 일은 확장이 켜진 뒤 한 번이면 된다. 새로 여는 페이지에는
   // manifest 의 content_scripts 가 알아서 넣는다. 서비스 워커는 30초 놀면 꺼졌다가 알람(1분)마다 다시 켜지는데,
   // 그때마다 모든 탭에 다시 넣었더니 잠겨 있는 동안 1분 안팎마다 잠금 화면이 지워졌다 다시 그려져 깜박였다(사용자 보고).
@@ -150,6 +152,8 @@ async function initialize() {
   await enforce();
 }
 const ready=initialize();
+// 다있쌤이 켜질 때 오늘의 백업이 없으면 만든다. 시작(ready)은 기다리지 않는다 — 도우미가 늦거나 없어도 확장은 바로 쓸 수 있어야 한다.
+ready.then(()=>setTimeout(()=>{dailyBackupIfDue().catch(()=>{});},3000)).catch(()=>{});
 // v0.1 kept one note per device under note_<device>; move this device's copy into the multi note layout.
 async function migrateNotes() {
   const {device,draftNote,pendingNote,draftNotes={},pendingNotes={}}=await chrome.storage.local.get(['device','draftNote','pendingNote','draftNotes','pendingNotes']);
@@ -198,6 +202,9 @@ async function restoreBackup(m) {
   if(before.locked)throw Error('먼저 프로필 잠금을 해제하세요.');
   const data=cleanBackup(m.payload);
   const want={};for(const name of ['notes','bookmarks','settings','tools','lock'])want[name]=!!m.parts?.[name];
+  // 복구하기 직전의 모습을 한 벌 남긴다(도우미가 있을 때). 복구가 마음에 들지 않으면 이것으로 되돌린다.
+  // 고른 것이 없으면 아무것도 바꾸지 않는다(만들지도 않는다).
+  if(before.configured&&Object.values(want).some(Boolean))await autoBackup('before-restore',{force:true}).catch(()=>{});
   const withLock=want.lock&&!!data.lock;
   if(!before.configured&&!withLock)throw Error('이 컴퓨터에는 아직 프로필이 없습니다. 잠금 PIN 이 든 백업을 고르거나, 먼저 PIN 을 만들어 주세요.');
   if(withLock&&before.configured&&!before.guest)await checkPin(m.pin);
@@ -411,6 +418,115 @@ chrome.alarms.onAlarm.addListener(a=>{
   });
 });
 chrome.runtime.onStartup.addListener(()=>exclusive(async()=>{await ready;if(await startLocked())await lock('start');}));
+
+// ── 자동 백업: 이 컴퓨터의 문서/다있쌤 백업 폴더 (v0.41.0) ─────────────────
+// 사용자 요청: 북마크가 사라졌다 나타나는 일을 겪고, 프로그램 오류로 잃을까 걱정. 확장을 지웠다 다시 깔아도 살릴 수 있게
+// 확장 밖(문서 폴더)에 파일로 둔다. 확장은 문서 폴더에 쓸 수 없으므로 발표 도우미 앱이 쓴다(host backup-*).
+//   하루 1번(다있쌤이 켜질 때 · 3시간마다 확인) · 메모/북마크가 바뀐 뒤(1분 모았다가, 5분에 한 번까지) · 직접(지금 백업) · 복구 직전.
+// 내용이 마지막 백업과 같으면 새로 쓰지 않는다. 비어 있는 백업(새로 깐 직후)은 만들지 않는다.
+// 보관: 한 달. 오늘 · 어제는 모두, 그 전은 하루에 하나, 가장 최근 3개는 오래돼도 남긴다(lib/autobackup.js pruneList).
+const BACKUP_NO_HOST='자동 백업은 발표 도우미 앱이 문서 폴더의 ‘다있쌤 백업’ 에 저장합니다. 발표 탭에서 앱을 받아 설치해 주세요.';
+async function hostSay(message){
+  let reply;
+  try{ reply=await chrome.runtime.sendNativeMessage(HOST,message); }
+  catch{ throw Error(BACKUP_NO_HOST); }
+  if(reply?.kind==='unknown')throw Error('설치된 발표 도우미가 자동 백업을 모르는 옛 버전입니다. 발표 탭에서 새 앱을 받아 설치해 주세요.');
+  if(!reply?.ok)throw Error(reply?.message||'자동 백업에 실패했습니다.');
+  return reply;
+}
+async function autoBackupOn(){ const {autoBackup}=await chrome.storage.local.get('autoBackup'); return autoBackup!==false; }
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+let backupRunning=null;
+// 한 번에 하나씩. exclusive() 를 쓰지 않는다 — 윈도우에서 도우미가 뜨는 데 1초 가까이 걸려 다른 명령을 붙잡지 않게.
+async function autoBackup(kind,{force=false}={}){
+  while(backupRunning)await backupRunning.catch(()=>{});
+  const job=runAutoBackup(kind,force);
+  backupRunning=job;
+  try{ return await job; } finally{ if(backupRunning===job)backupRunning=null; }
+}
+async function runAutoBackup(kind,force){
+  await ready;
+  const p=await profile();
+  if(!p)return {skipped:'no-profile'};
+  const automatic=kind==='daily'||kind==='change';
+  if(automatic&&!(await autoBackupOn()))return {skipped:'off'};
+  const [sync,local]=await Promise.all([chrome.storage.sync.get(null),chrome.storage.local.get(null)]);
+  const state=local.autoBackupState||{};
+  const payload=collectBackup({sync,local,version:chrome.runtime.getManifest().version,os:navigator.userAgent.includes('Mac')?'mac':navigator.userAgent.includes('Windows')?'win':'other',includeLock:false});
+  if(!worthKeeping(payload)&&kind!=='manual')return {skipped:'empty'};
+  const print=await fingerprint(payload);
+  if(automatic&&!force&&print===state.lastPrint){
+    await chrome.storage.local.set({autoBackupState:{...state,lastDay:today()}});
+    return {skipped:'same'};
+  }
+  const text=plainBackup(payload);
+  // 만든 글을 바로 다시 열어 본다. 급할 때 열리지 않는 백업이면 없는 것만 못하다.
+  const check=(await openBackup(text)).payload;
+  if(check.notes.length!==payload.notes.length||check.bookmarks.length!==payload.bookmarks.length)throw Error('만든 백업을 다시 열어 보니 내용이 맞지 않아 저장하지 않았습니다.');
+  // 같은 초에 두 번 만들면 이름이 같아 앞의 것을 덮어쓴다 — 1초씩 밀어 겹치지 않게 한다.
+  let stamp=Date.now(),name=backupName(new Date(stamp),kind,local.device);
+  while(name===state.lastName||(state.lastAt&&stamp<=state.lastAt&&backupName(new Date(state.lastAt),kind,local.device)===name)){stamp+=1000;name=backupName(new Date(stamp),kind,local.device);}
+  try{
+    const saved=await hostSay({type:'backup-save',name,text});
+    const next={...state,lastAt:Date.now(),lastName:name,lastKind:kind,lastBytes:saved.bytes,lastPrint:print,lastDay:today(),folder:saved.path?saved.path.replace(/[\\/][^\\/]*$/,''):state.folder,error:'',errorAt:0};
+    if(kind==='change')next.lastChangeAt=Date.now();
+    await chrome.storage.local.set({autoBackupState:next});
+    // 오래된 것 정리. 실패해도 백업은 이미 남았다.
+    try{ const list=await hostSay({type:'backup-list'}); const old=pruneList(list.files||[],local.device); if(old.length)await hostSay({type:'backup-delete',names:old}); }catch{}
+    return {ok:true,name,bytes:saved.bytes,kind};
+  }catch(error){
+    await chrome.storage.local.set({autoBackupState:{...state,error:String(error?.message||error),errorAt:Date.now()}});
+    throw error;
+  }
+}
+async function dailyBackupIfDue(){
+  if(!(await autoBackupOn()))return;
+  const {autoBackupState={}}=await chrome.storage.local.get('autoBackupState');
+  if(autoBackupState.lastDay===today())return;
+  // 도우미가 없어 실패한 날은 3시간마다 다시 묻지 않고 하루 한 번만 시도한다.
+  if(autoBackupState.errorAt&&new Date(autoBackupState.errorAt).toDateString()===new Date().toDateString())return;
+  await autoBackup('daily').catch(()=>{});
+}
+// 메모 · 북마크가 바뀌면 1분 뒤(그 사이 바뀐 것까지 모아) 백업한다. 5분 안에 다시 쓰지는 않는다.
+async function changeBackupSoon(){
+  if(!(await autoBackupOn()))return;
+  if(await chrome.alarms.get('auto-backup-change'))return;
+  const {autoBackupState={}}=await chrome.storage.local.get('autoBackupState');
+  const when=Math.max(Date.now()+60000,(autoBackupState.lastChangeAt||0)+CHANGE_GAP_MINUTES*60000);
+  await chrome.alarms.create('auto-backup-change',{when});
+}
+chrome.storage.onChanged.addListener((changes,area)=>{
+  const keys=Object.keys(changes);
+  const watched=area==='sync'?keys.some(k=>k.startsWith('note_')||k.startsWith('marks_')):area==='local'&&keys.some(k=>k==='pendingNotes'||k==='draftNotes'||k==='noteImages');
+  if(watched)changeBackupSoon().catch(()=>{});
+});
+chrome.alarms.onAlarm.addListener(a=>{
+  if(a.name==='auto-backup-change')autoBackup('change').catch(()=>{});
+  if(a.name==='auto-backup-daily')dailyBackupIfDue().catch(()=>{});
+});
+// 사이드바의 자동 백업 칸이 보여 줄 것: 켜짐 · 마지막 백업 · 폴더의 백업 목록(최신 먼저, 다른 컴퓨터 것도).
+async function backupInfo(){
+  const {autoBackupState={},device}=await chrome.storage.local.get(['autoBackupState','device']);
+  const info={on:await autoBackupOn(),state:autoBackupState,files:[],folder:autoBackupState.folder||'',error:''};
+  try{
+    const list=await hostSay({type:'backup-list'});
+    info.folder=list.folder||info.folder;
+    const mine=deviceTag(device);
+    info.files=sortBackups(list.files||[]).map(f=>({name:f.name,at:f.at,kind:f.kind,device:f.device,mine:f.device===mine,bytes:f.bytes}));
+  }catch(error){ info.error=String(error?.message||error); }
+  return info;
+}
+async function backupRead(name){
+  let offset=0,size=Infinity;const parts=[];
+  while(offset<size){
+    const r=await hostSay({type:'backup-read',name,offset,length:READ_CHUNK});
+    size=r.size;const bytes=Uint8Array.from(atob(r.chunk||''),c=>c.charCodeAt(0));
+    if(!bytes.length)break;
+    parts.push(bytes);offset+=bytes.length;
+    if(offset>45*1048576)throw Error('백업 파일이 너무 큽니다.');
+  }
+  return new TextDecoder().decode(new Uint8Array(await new Blob(parts).arrayBuffer()));
+}
 chrome.commands.onCommand.addListener(c=>{
   if(c==='lock-profile-key'){exclusive(async()=>{await ready;await lock('key');});return;}
   // 캡처 단축키. 사이드바를 열지 않아도 된다. 결과는 알림으로 알린다.
@@ -711,6 +827,12 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     if(m.type==='lock')return lock('button');
     // 잠금 상태 확인은 함수 안에서 한다. 처음 쓰는 컴퓨터(아직 프로필이 없음)에서도 백업으로 시작할 수 있어야 한다.
     if(m.type==='backup-restore')return restoreBackup(m);
+    if(m.type.startsWith('auto-backup-')&&(await state()).locked)throw Error('먼저 프로필 잠금을 해제하세요.');
+    if(m.type==='auto-backup-now')return autoBackup('manual');
+    if(m.type==='auto-backup-info')return backupInfo();
+    if(m.type==='auto-backup-read')return backupRead(String(m.name||''));
+    if(m.type==='auto-backup-open')return hostSay({type:'backup-open'});
+    if(m.type==='auto-backup-set'){await chrome.storage.local.set({autoBackup:m.on!==false});return backupInfo();}
     if(m.type==='close-window'){const w=await chrome.windows.getCurrent();await chrome.windows.remove(w.id);return true;}
     if((await state()).locked || !(await state()).configured)throw new Error('먼저 프로필 잠금을 해제하세요.');
     // 캡처: mode 는 visible·area·full·delay·ocr. after 를 주면 설정 대신 그것을 쓴다(도크는 'both').

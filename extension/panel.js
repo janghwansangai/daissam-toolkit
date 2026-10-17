@@ -1,7 +1,8 @@
 import {unseal,assertPin} from './lib/crypto.js';
-import {noteList,noteKey,stampTitle,particle,checkQuota,safeURL,mergeBookmarks,editBookmarks} from './lib/data.js';
+import {noteList,noteKey,stampTitle,particle,checkQuota,safeURL,mergeBookmarks,readBookmarks,editBookmarks} from './lib/data.js';
 import {HOT_DEFAULTS,HOT_ORDER,HOT_LABEL,hotShow,hotFromEvent,hotCheck,hotText,hotClean} from './lib/keys.js';
 import {deliver} from './lib/shots.js';
+import {KIND_LABEL} from './lib/autobackup.js';
 import {collectBackup,sealBackup,plainBackup,openBackup,describeBackup,checkPassphrase,MAX_FILE_BYTES} from './lib/backup.js';
 const $=id=>document.getElementById(id);
 let profileState,device,editingNote=false,currentNoteId=null,unsavedNote=false,myRevision='',markFolder='',vaultItems=[],vaultEpoch=0,vaultBusy=false;
@@ -70,7 +71,13 @@ async function renderState(s){
   $('gate-submit').textContent=s.configured?'내 프로필 사용하기 →':'내 공간 만들기 →';
   $('owner').textContent=s.name;$('settings-name').value=s.name;$('idle').value=String(s.idleMinutes);$('start-locked').checked=s.startLocked!==false;$('lock-away').checked=s.lockOnAway!==false;$('wheel-zoom').checked=s.wheelZoom!==false;
   if(s.locked||!s.configured){clearBackupPlan();backupFile=null;closeVault();$('note').value='';$('note-title').value='';$('note-tabs').replaceChildren();$('note-versions').replaceChildren();$('note-images').replaceChildren();editingNote=false;currentNoteId=null;unsavedNote=false;}
-  else {await loadNotes();await loadClip();await loadMarks();}
+  // 셋을 따로 읽는다. 예전에는 차례로 읽어 메모나 클립보드 칸에서 한 번 실패하면 북마크를 아예 읽지 않았다 —
+  // 다음 변화가 올 때까지 북마크가 빈 목록으로 보였다(사용자 보고: 사라졌다 다시 나타남).
+  else {
+    const results=await Promise.allSettled([loadNotes(),loadClip(),loadMarks()]);
+    for(const r of results)if(r.status==='rejected')notice(r.reason?.message||String(r.reason));
+    offerAutoRestore().catch(()=>{});
+  }
 }
 // 잠금 해제만 하려고 띄운 창은 할 일이 끝나면 닫는다. 사이드바가 본 화면이다.
 const unlockOnly=new URLSearchParams(location.search).get('unlock')==='1';
@@ -218,7 +225,9 @@ async function saveSettings(){
 event('settings-form','submit',async e=>{e.preventDefault();await saveSettings();notice('설정을 저장했습니다.');});
 for(const id of ['start-locked','lock-away','wheel-zoom','idle'])event(id,'change',async()=>{await saveSettings();notice('저장했습니다 — 이 컴퓨터에만 적용됩니다.');});
 for(const button of document.querySelectorAll('nav button'))button.addEventListener('click',()=>{
-  if(button.dataset.page!=='vault')closeVault();
+  // 예전에는 다른 탭으로 가면 북마크 목록을 비우고(closeVault — 암호 보관함 시절의 동작), 돌아와도 다시 읽지 않아
+  // 빈 목록으로 보였다(사용자 보고: 북마크가 사라졌다 다시 나타남 — 실제 Chrome 에서 재현). 비우지 않고, 돌아올 때 새로 읽는다.
+  if(button.dataset.page==='vault')loadMarks().catch(error=>notice(error.message));
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('selected',b===button));
   // 설정도 page 로 취급한다. 탭을 고르면 같이 닫힌다.
   document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==button.dataset.page);notice();pageShown(button.dataset.page);
@@ -657,7 +666,10 @@ async function loadMarks(){
   if(!profileState?.configured||profileState.locked)return;
   const all=await chrome.storage.sync.get(null);
   const snapshots=markRecords(all);
-  vaultItems=snapshots.length?mergeBookmarks(snapshots):[];
+  // 망가진 항목 하나 때문에 목록 전체를 버리지 않는다. 건너뛴 것만 알린다.
+  const read=snapshots.length?readBookmarks(snapshots):{items:[],skipped:0};
+  vaultItems=read.items;
+  if(read.skipped)notice(`형식이 맞지 않는 북마크 ${read.skipped}개는 보여 주지 않습니다(다른 기기의 옛 기록일 수 있습니다). 나머지는 그대로입니다.`);
   $('legacy-vault').hidden=!Object.keys(all).some(key=>key.startsWith('vault_'));
   renderFolders();renderBookmarks();
 }
@@ -688,7 +700,7 @@ function renderBookmarks(){
     const row=document.createElement('div');row.className='bookmark';
     const link=document.createElement('a');link.href=safeURL(item.url);link.target='_blank';link.rel='noopener noreferrer';
     const title=document.createElement('strong');title.textContent=item.title;
-    const host=document.createElement('small');host.textContent=new URL(item.url).hostname;
+    const host=document.createElement('small');try{host.textContent=new URL(item.url).hostname;}catch{host.textContent=item.url;}
     link.append(title,host);
     const move=document.createElement('select');move.className='move';move.title='폴더 옮기기';
     for(const entry of [{id:'',title:'폴더 없음'},...known]){
@@ -711,7 +723,7 @@ async function commitMarks(edits){
     // Read again before every edit; device specific keys keep offline peers intact.
     const all=await chrome.storage.sync.get(null);
     const snapshots=markRecords(all);
-    const current=snapshots.length?mergeBookmarks(snapshots):[];
+    const current=snapshots.length?readBookmarks(snapshots).items:[];
     const merged=editBookmarks(current,edits,device);
     const value={v:1,kind:'bookmarks',items:merged};
     checkQuota(all,'marks_'+device,value);
@@ -918,6 +930,87 @@ event('bk-go','click',async()=>{
   try{await runRestore(openedBackup.payload,parts,pin);}
   finally{button.disabled=false;button.textContent=was;}
 });
+// ── 자동 백업 · 이 컴퓨터 (문서/다있쌤 백업) ───────────────────────────────
+// 만들기 · 목록 · 읽기는 서비스 워커가 발표 도우미를 거쳐 한다. 복구는 위 ‘전체 백업 · 복원’ 과 같은 미리보기 · 더하기 규칙을 쓴다.
+let abFiles=[],abShown=20,abChecked=false;
+const abWhen=at=>new Date(at).toLocaleString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+const abLabel=f=>KIND_LABEL[f.kind]||f.kind;
+function renderAutoBackup(info){
+  $('ab-on').checked=info.on!==false;
+  const st=info.state||{},lines=[];
+  if(st.lastAt)lines.push(`마지막 백업: ${abWhen(st.lastAt)} (${KIND_LABEL[st.lastKind]||''}) · ${sizeText(st.lastBytes||0)}`);
+  if(info.folder)lines.push('폴더: '+info.folder);
+  if(info.error)lines.push('⚠ '+info.error);
+  else if(st.error&&(st.errorAt||0)>(st.lastAt||0))lines.push('⚠ 마지막 시도가 실패했습니다: '+st.error);
+  if(!lines.length)lines.push('아직 백업이 없습니다. ‘지금 백업’ 을 누르거나 메모 · 북마크를 쓰면 저절로 만들어집니다.');
+  $('ab-status').textContent=lines.join('\n');$('ab-status').classList.toggle('warn',!!info.error);
+  abFiles=info.files||[];renderAbList();
+}
+function renderAbList(){
+  const list=$('ab-list');list.replaceChildren();
+  if(!abFiles.length){const li=document.createElement('li');li.className='empty';li.textContent='이 폴더에 백업이 아직 없습니다.';list.append(li);}
+  for(const f of abFiles.slice(0,abShown)){
+    const li=document.createElement('li'),span=document.createElement('span'),small=document.createElement('small');
+    span.textContent=abWhen(f.at)+' · '+abLabel(f);
+    small.textContent=(f.mine?'이 컴퓨터':'다른 컴퓨터('+f.device+')')+' · '+sizeText(f.bytes||0);
+    span.append(small);
+    const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='복구';
+    b.onclick=()=>openAutoBackup(f).catch(error=>notice(error.message));
+    li.append(span,b);list.append(li);
+  }
+  $('ab-more').hidden=abFiles.length<=abShown;
+}
+async function refreshAutoBackup(){
+  try{renderAutoBackup(await api('auto-backup-info'));}
+  catch(error){$('ab-status').textContent='⚠ '+error.message;$('ab-status').classList.add('warn');}
+}
+event('ab-more','click',()=>{abShown+=20;renderAbList();});
+event('ab-on','change',async()=>{
+  renderAutoBackup(await api('auto-backup-set',{on:$('ab-on').checked}));
+  notice($('ab-on').checked?'자동 백업을 켰습니다.':'자동 백업을 껐습니다. ‘지금 백업’ 과 날짜로 복구는 계속 쓸 수 있습니다.');
+});
+event('ab-now','click',async()=>{
+  const button=$('ab-now'),was=button.textContent;button.disabled=true;button.textContent='저장하는 중…';
+  try{const r=await api('auto-backup-now');notice(r?.ok?`백업했습니다 — 문서 → 다있쌤 백업 → ${r.name}`:'백업할 내용이 없습니다.');}
+  finally{button.disabled=false;button.textContent=was;await refreshAutoBackup();}
+});
+event('ab-open','click',async()=>{await api('auto-backup-open');});
+async function readAutoBackup(name){ return openBackup(await api('auto-backup-read',{name})); }
+async function openAutoBackup(f){
+  clearBackupPlan();
+  const result=await readAutoBackup(f.name);
+  backupFile={name:'자동 백업 · '+abWhen(f.at)+' ('+abLabel(f)+(f.mine?'':' · 다른 컴퓨터')+')'};
+  showBackupPlan(result);
+  $('bk-plan').scrollIntoView({block:'center',behavior:'smooth'});
+  notice('아래에서 가져올 것을 고른 뒤 ‘복원’ 을 누르세요. 지금 있는 메모 · 북마크는 지우지 않습니다.');
+}
+// 새로 깐 다있쌤(메모도 북마크도 없음)인데 이 컴퓨터에 자동 백업이 있으면 알려 준다 — 확장을 지웠다 다시 깐 경우.
+// 여러 컴퓨터의 백업이 같은 폴더에 있으면(동기화되는 문서 폴더) 그중 가장 최근 것을 고른다.
+async function offerAutoRestore(){
+  if(abChecked||!profileState?.configured||profileState.locked)return;
+  abChecked=true;
+  const [sync,local]=await Promise.all([chrome.storage.sync.get(null),chrome.storage.local.get(['pendingNotes','draftNotes'])]);
+  const hasNotes=noteList(sync).length>0||Object.keys(local.pendingNotes||{}).length>0||Object.keys(local.draftNotes||{}).length>0;
+  const hasMarks=markRecords(sync).some(record=>record.items.some(item=>!item.deleted));
+  if(hasNotes||hasMarks)return;
+  let info;try{info=await api('auto-backup-info');}catch{return;}
+  const newest=info.files?.[0];
+  if(!newest)return;
+  // ‘닫기’ 를 누른 같은 백업은 다시 알리지 않는다(일부러 비워 둔 다있쌤에서 열 때마다 뜨지 않게).
+  const {abFoundDismissed}=await chrome.storage.local.get('abFoundDismissed');
+  if(abFoundDismissed===newest.name)return;
+  $('ab-found-text').textContent=`이 컴퓨터에 다있쌤 자동 백업이 ${info.files.length}개 있습니다.\n가장 최근: ${abWhen(newest.at)} (${abLabel(newest)}${newest.mine?'':' · 다른 컴퓨터'})`;
+  $('ab-found').dataset.name=newest.name;$('ab-found').hidden=false;
+}
+event('ab-found-go','click',async()=>{
+  const button=$('ab-found-go');button.disabled=true;button.textContent='복구하는 중…';
+  try{
+    const result=await readAutoBackup($('ab-found').dataset.name);
+    await runRestore(result.payload,{notes:true,bookmarks:true,settings:true,tools:true},'');
+  }finally{button.disabled=false;button.textContent='가장 최근 백업으로 복구';}
+});
+event('ab-found-list','click',()=>{$('ab-found').hidden=true;pageBefore='notes';showPage('settings');$('auto-backup').scrollIntoView({block:'start'});});
+event('ab-found-close','click',async()=>{$('ab-found').hidden=true;await chrome.storage.local.set({abFoundDismissed:$('ab-found').dataset.name||''});});
 // 처음 쓰는 컴퓨터(프로필 없음)에서 백업으로 시작한다. 잠금 PIN 이 든 백업이라야 새 PIN 없이 시작할 수 있다.
 event('gate-restore-open','click',()=>{$('gate-restore-box').hidden=!$('gate-restore-box').hidden;});
 async function gateRestore(pass){
@@ -1141,6 +1234,7 @@ function watchDevices(show,current,load){
   return current;
 }
 function pageShown(name){
+  if(name==='settings')refreshAutoBackup();
   if(name==='capture')checkAreaMode();
   capDevices=watchDevices(name==='capture',capDevices,()=>(captureReady||Promise.resolve()).then(listRecDevices));
   micDevices=watchDevices(name==='tools'&&$('tool-rec').open,micDevices,recListMics);

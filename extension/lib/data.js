@@ -98,6 +98,20 @@ export function mergeBookmarks(snapshots) {
   }
   return [...result.values()].sort((a,b)=>a.id.localeCompare(b.id));
 }
+// 읽을 때는 망가진 항목 하나 때문에 목록 전체를 버리지 않는다(사용자 보고: 북마크가 사라졌다 다시 나타남).
+// 형식이 맞지 않는 항목만 건너뛰고 그 수를 돌려준다. 쓸 때(editBookmarks)는 mergeBookmarks 로 엄격하게 본다.
+export function readBookmarks(snapshots) {
+  const good = [];
+  let skipped = 0;
+  for (const snapshot of snapshots || []) {
+    if (snapshot?.kind !== 'bookmarks' || !Array.isArray(snapshot.items)) { skipped++; continue; }
+    for (const item of snapshot.items) {
+      try { mergeBookmarks([{kind: 'bookmarks', items: [item]}]); good.push(item); }
+      catch { skipped++; }
+    }
+  }
+  return {items: mergeBookmarks([{kind: 'bookmarks', items: good}]), skipped};
+}
 export function editBookmark(items, id, fields, writer) {
   return editBookmarks(items, [{id, fields}], writer);
 }

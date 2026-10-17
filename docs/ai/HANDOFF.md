@@ -1,7 +1,10 @@
 # 현재 인수인계
 
 - 목표: 브라우저 보완관 v0.1 사용자 피드백 수정·기능 추가. 완료 조건은 PROJECT의 "완료 조건과 제한".
-- 상태/활성 편집자: v0.40.5(캡처 단추 정리 — 끌어서 고르기는 ‘선택 영역’ 하나) 시험·포장(2026-10-10). 맥 Claude. 확장만 바뀜.
+- 상태/활성 편집자: v0.41.0(북마크가 사라졌다 나타나던 것 고침 · 자동 백업 문서/다있쌤 백업 · 날짜로 복구) 시험·포장(2026-10-17). 맥 Claude. **맥 앱이 바뀌었다**(backup-* 명령, 설치함). 윈도우는 WINDOWS_HANDOFF v0.41.0 요청 중.
+- v0.41.0 규칙 ① **북마크 탭을 떠날 때 목록을 비우지 말 것**(예전 closeVault — 돌아와도 다시 읽지 않아 빈 목록, 실제 Chrome 재현). 북마크 탭에 들어올 때 `loadMarks()`. 사이드바 시작 시 메모 · 클립보드 · 북마크는 `Promise.allSettled` 로 따로 읽는다. 읽기는 `readBookmarks`(망가진 항목만 건너뜀), 쓰기 검증은 `mergeBookmarks`(엄격).
+- v0.41.0 규칙 ② 자동 백업: 파일 쓰기는 도우미(`backup-save/list/read/delete/open`, 이름 규칙 고정, `DAISSAM_BACKUP_DIR` 은 시험용). 규칙은 `lib/autobackup.js`(이름 · 31일 · 최근 3개 · 오늘/어제 모두 · 그 전 하루 하나 · 내 기기 것만 정리). 백그라운드 `autoBackup(kind)` 는 exclusive 밖에서 하나씩. 같은 내용이면 자동은 건너뜀, 빈 백업은 만들지 않음, PIN 은 담지 않음(plainBackup). 시험: `tests/host-backup.test.mjs`(맥 · 윈도우 계약), `tests/autobackup.test.mjs`, `tests/e2e/autobackup.e2e.mjs`(18건).
+- (이전) v0.40.5(캡처 단추 정리 — 끌어서 고르기는 ‘선택 영역’ 하나) 시험·포장(2026-10-10). 맥 Claude. 확장만 바뀜.
 - v0.40.5 규칙: 끌어서 고르는 단추를 다시 둘로 나누지 말 것. ‘선택 영역’(캡처 탭 `cap-area` · 도크)은 앱 `snip-save` 먼저 → 실패하면 탭 안. 지금 방식은 `#cap-area-mode`(`checkAreaMode`, 캡처 탭을 열 때). ‘화면 · 창 통째로 찍기’(`cap-screen`)는 Chrome 고르기.
 - (이전) v0.40.4(확장이 바로 못 찍는 화면에서도 캡처 · 다른 창으로 건너뛰지 않기) 시험·포장(2026-10-10). 맥 Claude. 확장만 바뀜.
 - v0.40.4 규칙: **캡처할 탭은 지금 보는 창의 것만**(`targetTab`) — 다른 창으로 건너뛰지 말 것(사용자 보고). 확장은 tabs 권한이 없어 about:blank · chrome:// · 자기 페이지 주소를 못 본다 — 주소로 가리지 말고 `canGrab` 으로 찍어 본다. 막히면 `TAB_BLOCKED` → 발표 도우미 `snip-save`(선택 영역) 또는 `grab.html` ‘화면 고르기’ → 편집기 `&crop=1`. 시험 `tests/e2e/capture-blocked.e2e.mjs`.

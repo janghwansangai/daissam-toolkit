@@ -289,3 +289,22 @@ PR #5 댓글의 사용자 보고(도크 캡처 단추 풍선말이 두 줄)를 �
 ## v0.40.3 — PR #6 합침
 
 v0.40.2 요청 두 가지(스토어 판 ID `penkl…` · 켜질 때 등록 맞추기) **처리됨.** 검토: 설치 자리에서만 고쳐 쓰는 조건 · 레지스트리 맞춤 · 실패는 `Note()` — 결함 없음. 새 요청 없음.
+
+## v0.41.0 — 요청: 자동 백업 명령 다섯 가지(문서/다있쌤 백업)
+
+사용자 요청: 북마크가 사라졌다 나타나는 일을 겪고(원인은 확장 쪽 — 다른 탭에 갔다 오면 목록을 비우고 다시 읽지 않았다, v0.41.0 에서 고침) 데이터를 잃을까 걱정. **확장을 지웠다 다시 깔아도 살릴 수 있게 이 컴퓨터의 문서 폴더에 백업 파일**을 남긴다. 확장은 문서 폴더에 쓸 수 없어 **도우미가 쓴다**(바탕화면 `캡처이미지` 저장과 같은 이유). 맥은 v0.41.0 에 넣었다(`Presenter.swift` `NativeHost.backup`). 윈도우 `presenter/windows/Presenter.cs` 의 `NativeHost.Handle` 에 같은 계약으로 넣어 주세요. 지금 윈도우 도우미는 `kind:"unknown"` 으로 답해 확장이 ‘옛 버전입니다’ 라고 안내한다(오류 없이 동작).
+
+**폴더**: `Environment.GetFolderPath(SpecialFolder.MyDocuments)` + `\다있쌤 백업`. 환경 변수 `DAISSAM_BACKUP_DIR` 가 있으면 그 폴더(시험용 — 사용자의 문서 폴더를 어지럽히지 않게). OneDrive 로 옮겨진 문서 폴더여도 그대로 쓴다(여러 컴퓨터의 백업이 한 폴더에 모일 수 있다 — 확장이 기기 번호로 가린다).
+
+**이름 규칙**(이 모양이 아니면 거절 — 폴더 밖 · 다른 파일은 절대 건드리지 않는다):
+`^daissam-backup_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}_(daily|change|manual|before-restore)_[0-9a-f]{6}\.json$`
+
+**명령**(모두 한 번에 한 답, `{kind:"backup", op, ok, ...}`; 실패는 `ok:false, message`):
+1. `backup-save {name, text}` — text 는 JSON 이고 `format:"daissam-backup"` 이어야 한다(64MB 까지). 폴더를 만들고 **임시 파일에 쓴 뒤 바꿔 넣기**(`File.Replace` 또는 `.part` 에 쓰고 `File.Move(…, overwrite:true)`). 쓴 뒤 크기를 맞춰 본다. 답 `{op:"save", ok:true, name, path, bytes}`. 못 쓰면 문서 폴더 접근 안내 글.
+2. `backup-list` — 이름 규칙에 맞는 파일만 `{op:"list", ok:true, folder, files:[{name, bytes, mtime(ms)}]}`. 폴더가 없으면 빈 목록. 3000개까지.
+3. `backup-read {name, offset, length}` — length 는 512KB 까지. `{op:"read", ok:true, name, offset, size(전체), chunk(base64)}`. **도우미 → Chrome 한 메시지 1MB 한도** 때문에 나눠 읽는다.
+4. `backup-delete {names:[…]}` — 이름 규칙에 맞는 것만 지운다(500개까지). `{op:"delete", ok:true, deleted}`.
+5. `backup-open` — 폴더를 만들고 탐색기로 연다. `{op:"open", ok, folder}`.
+모르는 `backup-*` 에도 `ok:false` 로 답한다.
+
+**시험**: `tests/host-backup.test.mjs` 가 win32 에서도 돈다(`dist/windows/Presenter.exe`). 이상한 이름 6가지 거절 · 백업 형식 아닌 내용 거절 · 1.3MB 를 512KB 씩 나눠 읽어 원본과 같음 · 지우기는 규칙 맞는 것만 · 폴더가 없으면 빈 목록. 지금 윈도우 exe 로는 실패하는 것이 맞다.

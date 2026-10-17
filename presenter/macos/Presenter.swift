@@ -2635,6 +2635,76 @@ enum NativeHost {
         lastChange = board.changeCount
         send(["kind":"copied","file":path])
     }
+    // MARK: 자동 백업 — 문서/다있쌤 백업 폴더 (v0.41.0)
+    // 확장은 문서 폴더에 쓸 수 없어 이 도우미가 쓴다. 확장을 지웠다 다시 깔아도 파일은 남는다.
+    // 이름은 확장이 정하고 여기서는 정해진 모양만 받는다(폴더 밖으로 나가는 이름 · 다른 파일은 절대 건드리지 않는다).
+    // 시험에서는 DAISSAM_BACKUP_DIR 로 다른 폴더를 쓴다(사용자의 문서 폴더를 어지럽히지 않게).
+    static let backupPattern = try! NSRegularExpression(pattern:"^daissam-backup_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}_(daily|change|manual|before-restore)_[0-9a-f]{6}\\.json$")
+    static func backupName(_ value: Any?) -> String? {
+        guard let name = value as? String, name.utf16.count < 120 else { return nil }
+        return backupPattern.firstMatch(in:name, range:NSRange(location:0, length:name.utf16.count)) != nil ? name : nil
+    }
+    static var backupFolder: URL? {
+        if let custom = ProcessInfo.processInfo.environment["DAISSAM_BACKUP_DIR"], !custom.isEmpty { return URL(fileURLWithPath:custom, isDirectory:true) }
+        return FileManager.default.urls(for:.documentDirectory, in:.userDomainMask).first?.appendingPathComponent("다있쌤 백업", isDirectory:true)
+    }
+    static func backup(_ message: [String:Any]) {
+        let op = String((message["type"] as? String ?? "").dropFirst("backup-".count))
+        func fail(_ text: String) { send(["kind":"backup","op":op,"ok":false,"message":text]) }
+        let denied = "문서 폴더의 ‘다있쌤 백업’ 에 쓰지 못했습니다. 시스템 설정 → 개인정보 보호 및 보안 → 파일 및 폴더에서 Google Chrome 의 ‘문서 폴더’ 를 허용해 주세요."
+        guard let folder = backupFolder else { fail("문서 폴더를 찾지 못했습니다."); return }
+        let files = FileManager.default
+        switch op {
+        case "save":
+            guard let name = backupName(message["name"]), let text = message["text"] as? String,
+                  let data = text.data(using:.utf8), data.count > 0, data.count <= 64 * 1_048_576,
+                  let parsed = try? JSONSerialization.jsonObject(with:data) as? [String:Any],
+                  parsed["format"] as? String == "daissam-backup" else { fail("백업 내용이 올바르지 않습니다."); return }
+            let target = folder.appendingPathComponent(name)
+            do {
+                try files.createDirectory(at:folder, withIntermediateDirectories:true)
+                try data.write(to:target, options:[.atomic])   // 임시 파일에 다 쓴 뒤 바꿔 넣는다 — 중간에 끊겨도 반쪽 파일이 남지 않는다
+            } catch { fail(denied); return }
+            // 다시 읽어 크기를 맞춰 본다. 급할 때 열리지 않는 백업이면 없는 것만 못하다.
+            let size = (try? files.attributesOfItem(atPath:target.path)[.size] as? Int) ?? -1
+            if size != data.count { fail("백업을 저장했지만 크기가 맞지 않습니다(\(size)/\(data.count))."); return }
+            send(["kind":"backup","op":op,"ok":true,"name":name,"path":target.path,"bytes":data.count])
+        case "list":
+            guard files.fileExists(atPath:folder.path) else { send(["kind":"backup","op":op,"ok":true,"folder":folder.path,"files":[]]); return }
+            guard let names = try? files.contentsOfDirectory(atPath:folder.path) else { fail(denied); return }
+            var list: [[String:Any]] = []
+            for raw in names {
+                let name = raw.precomposedStringWithCanonicalMapping
+                guard backupName(name) != nil, list.count < 3000 else { continue }
+                let attributes = (try? files.attributesOfItem(atPath:folder.appendingPathComponent(raw).path)) ?? [:]
+                list.append(["name":name,"bytes":attributes[.size] as? Int ?? 0,
+                             "mtime":Int(((attributes[.modificationDate] as? Date) ?? Date.distantPast).timeIntervalSince1970*1000)])
+            }
+            send(["kind":"backup","op":op,"ok":true,"folder":folder.path,"files":list])
+        case "read":
+            guard let name = backupName(message["name"]) else { fail("백업 이름이 올바르지 않습니다."); return }
+            let offset = max(0, message["offset"] as? Int ?? 0)
+            let length = min(512 * 1024, max(1, message["length"] as? Int ?? 512 * 1024))
+            let path = folder.appendingPathComponent(name)
+            guard let handle = try? FileHandle(forReadingFrom:path) else { fail("그 백업 파일을 열지 못했습니다."); return }
+            defer { try? handle.close() }
+            let total = (try? files.attributesOfItem(atPath:path.path)[.size] as? Int) ?? 0
+            guard (try? handle.seek(toOffset:UInt64(min(offset,total)))) != nil, let chunk = try? handle.read(upToCount:length) else { fail("그 백업 파일을 읽지 못했습니다."); return }
+            send(["kind":"backup","op":op,"ok":true,"name":name,"offset":offset,"size":total,"chunk":(chunk ?? Data()).base64EncodedString()])
+        case "delete":
+            var deleted = 0
+            for value in (message["names"] as? [Any] ?? []).prefix(500) {
+                guard let name = backupName(value) else { continue }
+                if (try? files.removeItem(at:folder.appendingPathComponent(name))) != nil { deleted += 1 }
+            }
+            send(["kind":"backup","op":op,"ok":true,"deleted":deleted])
+        case "open":
+            try? files.createDirectory(at:folder, withIntermediateDirectories:true)
+            let opened = NSWorkspace.shared.open(folder)
+            send(["kind":"backup","op":op,"ok":opened,"folder":folder.path] as [String:Any])
+        default: fail("모르는 백업 명령입니다.")
+        }
+    }
     static func handle(_ message: [String:Any]) {
         switch message["type"] as? String {
         case "start":
@@ -2660,6 +2730,7 @@ enum NativeHost {
         case "screen-settings": openScreenSettings()
         case "presenter": forward(message)
         case "guest": launchGuest()
+        case "backup-save","backup-list","backup-read","backup-delete","backup-open": backup(message)
         // 모르는 명령에도 반드시 답한다. 답하지 않으면 확장이 끝없이 기다린다.
         default: send(["kind":"unknown","ok":false,"message":"이 도우미가 모르는 명령입니다. 새 버전을 설치해 주세요."])
         }

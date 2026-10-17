@@ -11,7 +11,7 @@
 //  · clipboardImport   — 클립보드 도우미는 그 컴퓨터에 앱이 있어야 한다. 켠 채로 옮기지 않는다.
 //  · authorized·attempts·watch·timerEndsAt 등 — 잠금 해제 상태, 실행 중인 타이머 같은 순간 값.
 //  · 바탕화면 ‘캡처이미지’ 폴더의 그림 파일 — 확장은 그 폴더를 읽을 수 없다(썸네일만 담는다).
-import {noteGroups, noteKey, safeURL, validateNoteId, mergeBookmarks, editBookmarks, checkQuota, TITLE_MAX} from './data.js';
+import {noteGroups, noteKey, safeURL, validateNoteId, mergeBookmarks, readBookmarks, editBookmarks, checkQuota, TITLE_MAX} from './data.js';
 import {hotClean} from './keys.js';
 
 export const BACKUP_FORMAT = 'daissam-backup';
@@ -256,9 +256,10 @@ export function collectNotes(sync, local) {
 export function markSnapshots(sync) {
   return Object.entries(sync).filter(([key, value]) => key.startsWith('marks_') && value?.kind === 'bookmarks' && Array.isArray(value.items)).map(([, value]) => value);
 }
+// 망가진 항목 하나 때문에 백업 전체가 실패하지 않게 읽기용(readBookmarks)으로 모은다.
 export function currentMarks(sync) {
   const snapshots = markSnapshots(sync);
-  return snapshots.length ? mergeBookmarks(snapshots) : [];
+  return snapshots.length ? readBookmarks(snapshots).items : [];
 }
 export function collectBackup({sync = {}, local = {}, version = '', os = 'other', includeLock = false, now = Date.now()} = {}) {
   const notes = collectNotes(sync, local);
