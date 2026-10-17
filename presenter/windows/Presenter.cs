@@ -2555,6 +2555,126 @@ namespace BrowserSheriff {
       for(int waited=0;waited<20&&StateStamp()==before;waited++)Thread.Sleep(20);
       Reply(launched);
     }
+    // 자동 백업 — 문서\다있쌤 백업 폴더 (v0.41.0, 맥 NativeHost.backup 과 같은 계약)
+    // 확장은 문서 폴더에 쓸 수 없어 이 도우미가 쓴다. 확장을 지웠다 다시 깔아도 파일은 남는다.
+    // 이름은 확장이 정하고 여기서는 정해진 모양만 받는다(폴더 밖으로 나가는 이름 · 다른 파일은 절대 건드리지 않는다).
+    // .NET 의 '$' 는 끝의 줄바꿈 앞에서도 맞으므로 '\z' 로 끝을 못 박는다.
+    // 시험에서는 DAISSAM_BACKUP_DIR 로 다른 폴더를 쓴다(사용자의 문서 폴더를 어지럽히지 않게).
+    static readonly System.Text.RegularExpressions.Regex BackupPattern=new System.Text.RegularExpressions.Regex(
+      @"^daissam-backup_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}_(daily|change|manual|before-restore)_[0-9a-f]{6}\.json\z",
+      System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    static string BackupName(JsonElement value){
+      if(value.ValueKind!=JsonValueKind.String)return null;
+      string name=value.GetString();
+      return name!=null&&name.Length<120&&BackupPattern.IsMatch(name)?name:null;
+    }
+    static string BackupFolder(){
+      string custom=Environment.GetEnvironmentVariable("DAISSAM_BACKUP_DIR");
+      if(!string.IsNullOrEmpty(custom))return custom;
+      string documents=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+      return string.IsNullOrEmpty(documents)?null:Path.Combine(documents,"다있쌤 백업");
+    }
+    static long Number(JsonElement root,string key,long fallback){
+      JsonElement node;long whole;
+      if(!root.TryGetProperty(key,out node)||node.ValueKind!=JsonValueKind.Number)return fallback;
+      if(node.TryGetInt64(out whole))return whole;
+      try{return (long)node.GetDouble();}catch{return fallback;}
+    }
+    static void Backup(JsonElement root,string type){
+      string op=type.Substring("backup-".Length);
+      const string denied="문서 폴더의 ‘다있쌤 백업’ 에 쓰지 못했습니다. 문서 폴더가 있는지 확인하고, Windows 보안 → 바이러스 및 위협 방지 → 랜섬웨어 방지의 ‘제어된 폴더 액세스’ 가 켜져 있으면 발표 도우미(Presenter.exe)를 허용 앱에 넣어 주세요.";
+      try{
+        string folder=BackupFolder();
+        if(folder==null){Send(new{kind="backup",op=op,ok=false,message="문서 폴더를 찾지 못했습니다."});return;}
+        JsonElement node;
+        if(op=="save"){
+          string name=root.TryGetProperty("name",out node)?BackupName(node):null;
+          string text=root.TryGetProperty("text",out node)&&node.ValueKind==JsonValueKind.String?node.GetString():null;
+          byte[] data=text==null?null:Encoding.UTF8.GetBytes(text);
+          bool shaped=false;
+          if(name!=null&&data!=null&&data.Length>0&&data.Length<=64*1048576){
+            try{using(JsonDocument parsed=JsonDocument.Parse(data)){JsonElement format;
+              shaped=parsed.RootElement.ValueKind==JsonValueKind.Object&&parsed.RootElement.TryGetProperty("format",out format)
+                &&format.ValueKind==JsonValueKind.String&&format.GetString()=="daissam-backup";}}catch{}
+          }
+          if(!shaped){Send(new{kind="backup",op=op,ok=false,message="백업 내용이 올바르지 않습니다."});return;}
+          string target=Path.Combine(folder,name);
+          // 임시 파일에 다 쓴 뒤 바꿔 넣는다 — 중간에 끊겨도 반쪽 백업이 남지 않는다. 임시 이름은 '.' 로
+          // 시작하고 이름 규칙에 맞지 않으므로 목록 · 읽기 · 지우기 어디에도 걸리지 않는다.
+          string part=Path.Combine(folder,"."+name+".part");
+          try{
+            Directory.CreateDirectory(folder);
+            using(FileStream stream=new FileStream(part,FileMode.Create,FileAccess.Write,FileShare.None)){stream.Write(data,0,data.Length);stream.Flush(true);}
+            File.Move(part,target,true);
+          }catch{try{File.Delete(part);}catch{}Send(new{kind="backup",op=op,ok=false,message=denied});return;}
+          // 다시 재 본다. 급할 때 열리지 않는 백업이면 없는 것만 못하다.
+          long size=-1;try{size=new FileInfo(target).Length;}catch{}
+          if(size!=data.Length){Send(new{kind="backup",op=op,ok=false,message="백업을 저장했지만 크기가 맞지 않습니다("+size+"/"+data.Length+")."});return;}
+          Send(new{kind="backup",op=op,ok=true,name=name,path=target,bytes=data.Length});
+        }
+        else if(op=="list"){
+          List<object> files=new List<object>();
+          if(Directory.Exists(folder)){
+            IEnumerable<string> entries;
+            try{entries=Directory.EnumerateFiles(folder);}catch{Send(new{kind="backup",op=op,ok=false,message=denied});return;}
+            foreach(string entry in entries){
+              if(files.Count>=3000)break;
+              string name=Path.GetFileName(entry);
+              if(name.Length>=120||!BackupPattern.IsMatch(name))continue;
+              FileInfo info=new FileInfo(entry);
+              files.Add(new{name=name,bytes=info.Length,mtime=new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds()});
+            }
+          }
+          Send(new{kind="backup",op=op,ok=true,folder=folder,files=files});
+        }
+        else if(op=="read"){
+          string name=root.TryGetProperty("name",out node)?BackupName(node):null;
+          if(name==null){Send(new{kind="backup",op=op,ok=false,message="백업 이름이 올바르지 않습니다."});return;}
+          // 도우미 → Chrome 한 메시지는 1MB 까지다. 512KB(base64 로 약 700KB)씩 나눠 준다.
+          long offset=Math.Max(0,Number(root,"offset",0));
+          int length=(int)Math.Min(512*1024,Math.Max(1,Number(root,"length",512*1024)));
+          long total;byte[] chunk;
+          try{
+            using(FileStream stream=new FileStream(Path.Combine(folder,name),FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete)){
+              total=stream.Length;
+              stream.Seek(Math.Min(offset,total),SeekOrigin.Begin);
+              byte[] buffer=new byte[(int)Math.Min(length,Math.Max(0,total-Math.Min(offset,total)))];
+              int got=0;
+              while(got<buffer.Length){int step=stream.Read(buffer,got,buffer.Length-got);if(step<=0)break;got+=step;}
+              chunk=got==buffer.Length?buffer:buffer[..got];
+            }
+          }catch{Send(new{kind="backup",op=op,ok=false,message="그 백업 파일을 읽지 못했습니다."});return;}
+          Send(new{kind="backup",op=op,ok=true,name=name,offset=offset,size=total,chunk=Convert.ToBase64String(chunk)});
+        }
+        else if(op=="delete"){
+          int deleted=0;
+          if(root.TryGetProperty("names",out node)&&node.ValueKind==JsonValueKind.Array){
+            int seen=0;
+            foreach(JsonElement value in node.EnumerateArray()){
+              if(seen++>=500)break;
+              string name=BackupName(value);
+              if(name==null)continue;
+              string file=Path.Combine(folder,name);
+              try{if(File.Exists(file)){File.Delete(file);deleted++;}}catch{}
+            }
+          }
+          Send(new{kind="backup",op=op,ok=true,deleted=deleted});
+        }
+        else if(op=="open"){
+          bool opened=false;
+          try{
+            Directory.CreateDirectory(folder);
+            string explorer=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"explorer.exe");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo{FileName=explorer,Arguments="\""+folder+"\"",UseShellExecute=false});
+            opened=true;
+          }catch{}
+          Send(new{kind="backup",op=op,ok=opened,folder=folder});
+        }
+        else Send(new{kind="backup",op=op,ok=false,message="모르는 백업 명령입니다."});
+      }
+      // 무엇이 터져도 답은 한다. 답하지 않으면 확장이 끝없이 기다린다.
+      catch(Exception why){Send(new{kind="backup",op=op,ok=false,message="백업 처리 중 오류: "+why.Message});}
+    }
     static void Handle(string raw){
       try{
         using(JsonDocument document=JsonDocument.Parse(raw)){
@@ -2572,6 +2692,7 @@ namespace BrowserSheriff {
           else if(type=="ocr")Ocr(root);
           else if(type=="recorder")Recorder(root);
           else if(type=="recorder-watch"){watchingRecorder=true;Send(new{kind="recorder",watching=true});}
+          else if(type!=null&&type.StartsWith("backup-",StringComparison.Ordinal))Backup(root,type);
           else if(type=="screen-settings")Send(new{kind="screen-settings",ok=true,message="윈도우에서는 따로 권한을 주지 않아도 됩니다."});
           // 모르는 명령에도 반드시 답한다. 답하지 않으면 확장이 끝없이 기다린다.
           else Send(new{kind="unknown",ok=false,message="이 도우미가 모르는 명령입니다. 새 버전을 설치해 주세요."});
