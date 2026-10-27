@@ -27,7 +27,7 @@ test('oversized note survives locally without overwriting cloud copy',async()=>{
   await send('note-flush');assert.equal(mock.data.sync[key].text,'valid draft');
 });
 test('quota failure preserves retry and a later flush succeeds',async()=>{
-  mock.data.sync.filler='x'.repeat(96000);await send('note-save',{id:'legacy',text:'offline draft'});await send('note-flush');
+  mock.data.sync.filler='x'.repeat(96000);await send('note-save',{id:'legacy',text:'offline draft — 앞서 보낸 것보다 길어 공간이 더 필요하다'});await send('note-flush');
   assert.ok(mock.data.local.pendingNotes.legacy);assert.ok(mock.data.local.noteSyncError);
   delete mock.data.sync.filler;await send('note-flush');assert.equal(mock.data.local.pendingNotes.legacy,undefined);
 });

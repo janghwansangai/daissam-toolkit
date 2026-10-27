@@ -42,16 +42,18 @@ test('보내지 못한 메모가 남으면 알람도 남아 1분마다 다시 �
   assert.equal(mock.data.local.pendingNotes.n2, undefined);
   assert.equal(has(), false, '결국 보내졌으면 알람이 없다');
 });
-test('지움 표시도 보낼 때까지 알람을 둔다', async () => {
+// v0.42.0: 지움 표시는 칸을 줄이므로 동기화 공간이 가득 차 있어도 올라가야 한다. 예전에는 가득 차면 지움 표시도
+// 기다리게 해(이 시험이 그것을 확인했다) 지운 메모가 다른 컴퓨터에 살아 있었다 — 혹사 시험이 찾았다.
+test('지움 표시는 동기화 공간이 가득 차도 곧바로 올라가고 알람을 남기지 않는다', async () => {
   await send('note-save', {id: 'n3', title: '지울 글', text: '곧 지움'}); await send('note-flush');
   mock.data.sync.filler = 'x'.repeat(96000);
   try {
     assert.equal((await send('note-delete', {id: 'n3'})).ok, true);
-    assert.ok(mock.data.local.pendingNotes.n3?.deleted);
-    assert.equal(has(), true);
+    assert.equal(mock.data.local.pendingNotes.n3, undefined, '기다리지 않고 보냈다');
+    const key = Object.keys(mock.data.sync).find(k => k.endsWith('_n3'));
+    assert.ok(mock.data.sync[key]?.deleted, '동기화 쪽에 지움 표시');
+    assert.equal(has(), false);
   } finally { delete mock.data.sync.filler; }
-  await send('note-flush');
-  assert.equal(has(), false);
 });
 test('알람이 울렸는데 보낼 것이 없으면 알람을 끈다', async () => {
   mock.alarmNames.set('flush-notes', {periodInMinutes: 1});

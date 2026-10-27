@@ -12,8 +12,11 @@ export function safeURL(value) {
   if (url.href.length > 1600) throw new Error('주소가 너무 깁니다.');
   return url.href;
 }
-export function checkQuota(all, key, value) {
+export function checkQuota(all, key, value, {allowShrink = false} = {}) {
   if (size(value) + new TextEncoder().encode(key).length > ITEM_BYTES) throw new Error('이 기기의 동기화 보관함이 가득 찼습니다. 내보내기로 보관하세요.');
+  // 이미 있는 칸을 같거나 더 작게 바꾸는 쓰기(지움 표시 · 짧아진 메모)는 공간이 가득 차 있어도 통과시킨다 — 쓰고 나면
+  // 오히려 줄어든다. 예전에는 공간이 가득 차면 지움 표시도 못 올려, 지운 메모가 다른 컴퓨터에 살아 있었다(혹사 시험으로 발견).
+  if (allowShrink && key in all && size(value) <= size(all[key])) return;
   if (size({...all,[key]:value}) > TOTAL_BYTES) throw new Error('Chrome 동기화 공간이 가득 찼습니다. 로컬 사본은 보존됩니다.');
 }
 export const TITLE_MAX = 40;
@@ -122,3 +125,35 @@ export function editBookmarks(items, edits, writer) {
   return mergeBookmarks([{kind:'bookmarks', items:[...items, ...written]}]);
 }
 export function isFolder(item) { return item.type === 'folder'; }
+// 사용자가 끌어서 정한 순서(메모 탭 · 북마크 폴더). 순서표에 없는 것(새로 만든 것)은 앞에 원래 차례대로,
+// 순서표에 있는 것은 그 차례대로 뒤에 둔다. 순서표에만 있고 지금 없는 id 는 무시한다.
+export function applyOrder(items, order, idOf = item => item.id) {
+  const rank = new Map((Array.isArray(order) ? order : []).map((id, i) => [id, i]));
+  const fresh = items.filter(item => !rank.has(idOf(item)));
+  const known = items.filter(item => rank.has(idOf(item))).sort((a, b) => rank.get(idOf(a)) - rank.get(idOf(b)));
+  return [...fresh, ...known];
+}
+// 순서표 검사: 메모 · 폴더 id 모양만, 겹치지 않게, 200개까지(동기화 한 칸 8KB 안).
+export const ORDER_MAX = 200;
+export function cleanOrder(ids) {
+  if (!Array.isArray(ids)) throw new Error('순서가 올바르지 않습니다.');
+  const seen = new Set();
+  for (const id of ids) if (typeof id === 'string' && /^[A-Za-z0-9-]{1,40}$/.test(id)) seen.add(id);
+  return [...seen].slice(0, ORDER_MAX);
+}
+// 끌어 놓기: from 을 to 자리로 옮긴 새 순서. 없는 id 면 그대로.
+export function moveInOrder(ids, from, to) {
+  const list = ids.slice(), at = list.indexOf(from), target = list.indexOf(to);
+  if (at < 0 || target < 0 || at === target) return list;
+  list.splice(at, 1);
+  list.splice(target, 0, from);
+  return list;
+}
+// 사이드바가 열려 페이지가 좁아졌을 때의 배율. 내용 폭(scrollWidth)이 보이는 폭(clientWidth)보다 24px 넘게
+// 넓으면 그만큼 줄인다. 0.5 아래로는 줄이지 않고, 지금보다 키우지는 않는다.
+export function fitZoom(current, scrollWidth, clientWidth) {
+  if (!(current > 0) || !(scrollWidth > 0) || !(clientWidth > 0)) return null;
+  if (scrollWidth - clientWidth <= 24) return null;
+  const next = Math.max(0.5, Math.floor(current * clientWidth / scrollWidth * 100) / 100);
+  return next < current - 0.01 ? next : null;
+}

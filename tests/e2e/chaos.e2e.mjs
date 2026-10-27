@@ -119,7 +119,8 @@ const operations = {
     const bad = pick([{id: '../x', text: 'a'}, {id: '', text: 'a'}, {id: 'bad-big', text: 'a'.repeat(200001)}, {id: 'bad-title', title: 'x'.repeat(41), text: 'a'}, {id: {}, text: 'a'}, {id: 'bad-null', text: null}, {id: 'bad-num', text: 5}]);
     note(`note-save(나쁜 입력) ${JSON.stringify(bad).slice(0, 40)}`);
     const r = await send(panel, 'note-save', bad);
-    if (r.ok) violate('나쁜 메모 입력이 받아들여졌다', {bad: JSON.stringify(bad).slice(0, 80)});
+    // 서비스 워커를 끄는 순간 보낸 요청은 답이 비어 올 수 있다(결과 모름) — 받아들여졌을 때만 위반이다.
+    if (r?.ok) violate('나쁜 메모 입력이 받아들여졌다', {bad: JSON.stringify(bad).slice(0, 80)});
     const keys = await panel.eval(`chrome.storage.local.get(['draftNotes','pendingNotes']).then(x=>[...Object.keys(x.draftNotes||{}),...Object.keys(x.pendingNotes||{})])`);
     const leaked = keys.filter(k => ['../x', '', 'bad-big', 'bad-title', 'bad-null', 'bad-num', '[object Object]'].includes(k));
     if (leaked.length) violate('나쁜 메모 입력이 저장소에 남았다', {leaked});
@@ -290,6 +291,8 @@ const errors = await extensionErrors();
 const real = errors.filter(e => !/Specified native messaging host not found/.test(e.m));
 console.log('\n=== 결과 ===');
 console.log('실행한 작업:', ops, JSON.stringify(counts), '· 서비스 워커가 꺼지는 순간에 보내 다시 보낸 횟수:', raced);
+// 동기화가 밀렸으면 왜인지 남긴다(쓰기 한도 · 공간 등).
+console.log('동기화 오류:', JSON.stringify(await panel.eval(`chrome.storage.local.get('noteSyncError').then(x=>x.noteSyncError||'')`)));
 console.log('메모: 확인받은', live.length, '개 · 동기화됨', synced, '· 로컬에만(긴 글)', localOnly, '· 대기 중', Object.keys(pendingNotes).length, '· 알람', JSON.stringify(finalAlarm));
 console.log('메모리 표본:', JSON.stringify(samples));
 if (errors.length) console.log('확장이 기록한 오류:', JSON.stringify(errors).slice(0, 1500));

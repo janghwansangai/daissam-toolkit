@@ -79,7 +79,8 @@ export class Page {
 export async function waitFile(dir, pattern, timeout = 15000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
-    const found = fs.readdirSync(dir).filter(f => pattern.test(f) && !f.endsWith('.crdownload')).sort();
+    // 한글 이름은 Chrome 판에 따라 풀어 쓴 자모(NFD)로 저장된다(Chrome 127) — 같은 형태(NFC)로 맞춰 본다.
+    const found = fs.readdirSync(dir).filter(f => pattern.test(f.normalize('NFC')) && !f.endsWith('.crdownload')).sort();
     if (found.length) return dir + '/' + found.at(-1);
     await sleep(150);
   }

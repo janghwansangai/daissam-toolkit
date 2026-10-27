@@ -84,7 +84,9 @@ for (let i = 0; i < 30 && !crop; i++) {
   await sleep(500);
   const {targetInfos} = await D.send('Target.getTargets');
   crop = targetInfos.find(t => /capture\.html#.+&crop=1/.test(t.url)) || null;
-  say = await g.eval(`document.getElementById('say')?.textContent||''`).catch(() => '(창이 닫힘)');
+  if (crop) break;
+  // 화면 고르기 창은 일을 마치면 스스로 닫힌다 — 닫힌 창에 물으면 답이 오지 않으므로 2초만 기다린다.
+  say = await Promise.race([g.eval(`document.getElementById('say')?.textContent||''`).catch(() => '(창이 닫힘)'), sleep(2000).then(() => '(답 없음)')]);
 }
 ok('‘화면 고르기’ 로 고른 화면이 편집기(자르기)로 열린다', !!crop, say);
 if (crop) {

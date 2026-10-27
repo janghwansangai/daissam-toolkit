@@ -1,5 +1,5 @@
 import {seal,unseal,assertPin} from './lib/crypto.js';
-import {validateNote,checkQuota,noteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES} from './lib/data.js';
+import {validateNote,checkQuota,noteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES,cleanOrder,fitZoom} from './lib/data.js';
 import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,collectBackup,plainBackup,openBackup,IMAGES_PER_NOTE,IMAGES_TOTAL} from './lib/backup.js';
 import {backupName,sortBackups,pruneList,fingerprint,worthKeeping,deviceTag,READ_CHUNK,CHANGE_GAP_MINUTES} from './lib/autobackup.js';
 import {captureAndDeliver,targetTab,pickTabArea,TAB_BLOCKED} from './capture-core.js';
@@ -76,7 +76,8 @@ async function state() {
   const why=locked?(lockWhy||'start'):'';
   const edition=chrome.runtime.id===DEV_ID?'dev':'store';
   const lockText=locked?(LOCK_WHY[why]||LOCK_WHY.start)+(edition==='dev'?' · 개발자 모드 판':' · 스토어 판'):'';
-  return {revision:stateRevision,configured:!!p,guest,locked,lockWhy:why,lockText,edition,name:p?.name||'내 프로필',idleMinutes:p?.idleMinutes||0,startLocked:await startLocked(),lockOnAway:await lockOnAway(),wheelZoom:await wheelZoom()};
+  const {secureMarks=false,fitPage=true}=await chrome.storage.local.get(['secureMarks','fitPage']);
+  return {secureMarks:secureMarks===true&&!guest,fitPage:fitPage!==false,revision:stateRevision,configured:!!p,guest,locked,lockWhy:why,lockText,edition,name:p?.name||'내 프로필',idleMinutes:p?.idleMinutes||0,startLocked:await startLocked(),lockOnAway:await lockOnAway(),wheelZoom:await wheelZoom()};
 }
 async function enforce() {
   const {stateRevision=0}=await chrome.storage.local.get('stateRevision');
@@ -191,6 +192,7 @@ async function storeNote(rawId,rawTitle,text,pinned,tag) {
   const writer=typeof tag==='string'?tag.slice(0,32):'';
   await chrome.storage.local.set({pendingNotes:{...pendingNotes,[id]:value},lastNoteWriter:writer,noteSyncError:null});
   await chrome.alarms.create('flush-notes',{delayInMinutes:0.5,periodInMinutes:1});
+  flushSoon();
   return {id,revision:value.revision};
 }
 
@@ -378,7 +380,33 @@ async function settleFlushAlarm() {
   // 지우는 사이에 메모가 새로 쌓였을 수 있다. 한 번 더 보고, 쌓였으면 다시 만든다.
   if(await waiting())await chrome.alarms.create('flush-notes',{delayInMinutes:0.5,periodInMinutes:1});
 }
+// 메모를 쓰고 3초 뒤(그 사이 더 쓰면 미룬다) 바로 Chrome 동기화로 올린다. 예전에는 30초 알람만 있어, 쓰고 곧바로
+// 노트북을 덮으면 메모가 그 컴퓨터에만 남아 다른 컴퓨터에서 안 보였다(사용자 보고 — 다시 켜면 그때 올라간다).
+// 동기화는 1분 120번 · 1시간 1800번까지라 5초에 한 번까지만 올린다.
+let flushTimer=0,lastFlushAt=0;
+function flushSoon(){
+  clearTimeout(flushTimer);
+  const wait=Math.max(3000,lastFlushAt+5000-Date.now());
+  flushTimer=setTimeout(()=>{flushTimer=0;exclusive(async()=>{await ready;await flushNotes();}).catch(()=>{});},wait);
+}
+// 이 기기의 동기화 소식(다른 컴퓨터가 ‘마지막으로 언제 올렸는지 · 아직 못 올린 메모가 있는지’ 볼 수 있게). 1분에 한 번까지.
+let beatAt=0;
+async function heartbeat(pending,error){
+  if(Date.now()-beatAt<60000&&pending===0&&!error)return;
+  beatAt=Date.now();
+  const {device}=await chrome.storage.local.get('device');
+  const os=navigator.userAgent.includes('Mac')?'mac':navigator.userAgent.includes('Windows')?'win':'other';
+  const value={v:1,os,at:Date.now(),pending,error:error?String(error).slice(0,120):'',version:chrome.runtime.getManifest().version};
+  try{ const all=await chrome.storage.sync.get(null); checkQuota(all,'dev_'+device,value); await chrome.storage.sync.set({['dev_'+device]:value}); }catch{}
+}
+async function syncStatus(){
+  const [all,local]=await Promise.all([chrome.storage.sync.get(null),chrome.storage.local.get(['device','pendingNotes','noteSyncError'])]);
+  const devices=Object.entries(all).filter(([k,v])=>k.startsWith('dev_')&&v?.v===1).map(([k,v])=>({device:k.slice(4),os:v.os,at:v.at,pending:v.pending||0,error:v.error||'',version:v.version||'',me:k.slice(4)===local.device}))
+    .sort((a,b)=>(b.at||0)-(a.at||0));
+  return {me:local.device,pending:Object.keys(local.pendingNotes||{}).length,error:local.noteSyncError||'',devices,notes:Object.keys(all).filter(k=>k.startsWith('note_')).length};
+}
 async function flushNotes() {
+  lastFlushAt=Date.now();
   const {pendingNotes={},device}=await chrome.storage.local.get(['pendingNotes','device']);
   const ids=Object.keys(pendingNotes);
   if(!ids.length){await settleFlushAlarm();return;}
@@ -396,13 +424,15 @@ async function flushNotes() {
         if(latest[id]?.revision===value.revision){const next={...latest};delete next[id];await chrome.storage.local.set({pendingNotes:next});}
         continue;
       }
-      checkQuota(all,key,value);
+      checkQuota(all,key,value,{allowShrink:true});
       await chrome.storage.sync.set({[key]:value});
       const latest=(await chrome.storage.local.get('pendingNotes')).pendingNotes||{};
       if(latest[id]?.revision===value.revision){const next={...latest};delete next[id];await chrome.storage.local.set({pendingNotes:next});}
     } catch(error) { failure=error.message; }
   }
   await chrome.storage.local.set({noteSyncError:failure});
+  const left=Object.keys((await chrome.storage.local.get('pendingNotes')).pendingNotes||{}).length;
+  await heartbeat(left,failure);
   // 다 보냈으면 알람을 끄고, 못 보낸 것이 남았으면 그대로 두어 1분마다 다시 시도한다.
   await settleFlushAlarm();
 }
@@ -729,10 +759,55 @@ chrome.windows.onRemoved.addListener(id=>{
 chrome.idle.onStateChanged.addListener(s=>exclusive(async()=>{
   await ready;
   if(s==='active')return;
+  // 자리를 비우거나 노트북을 덮으면(화면 잠금) 기다리던 메모부터 올린다.
+  await flushNotes().catch(()=>{});
   // 화면 잠금·절전은 '자리를 비움' 설정과 따로 논다. 둘 다 끌 수 있어야 한다.
   if(s==='locked'){ if(await lockOnAway())await lock('away'); return; }
   if((await profile())?.idleMinutes)await lock('idle');
 }));
+// ── 사이드바를 열면 페이지를 줄여 한 화면에 (v0.42.0) ─────────────────────
+// 사용자 요청: 사이드바가 열리면 페이지가 좁아져 가로 스크롤이 생긴다 — 페이지 배율을 줄여 둘 다 보이게.
+// 그 탭만(per-tab) 바꾼다 — 같은 사이트의 다른 탭이나 다음 방문에는 남지 않는다. 사이드바를 닫으면 되돌린다
+// (사용자가 그 사이 직접 배율을 바꿨으면 손대지 않는다). 계산은 lib/data.js fitZoom.
+async function fitOn(){const {fitPage}=await chrome.storage.local.get('fitPage');return fitPage!==false;}
+async function fitted(){return (await chrome.storage.session.get('fitted')).fitted||{};}
+async function fitPage(tabId){
+  if(!Number.isInteger(tabId)||!(await fitOn()))return {changed:false};
+  let tab,size;
+  try{tab=await chrome.tabs.get(tabId);}catch{return {changed:false};}
+  try{[{result:size}]=await chrome.scripting.executeScript({target:{tabId},func:()=>({sw:document.documentElement.scrollWidth,cw:document.documentElement.clientWidth})});}
+  catch{return {changed:false};}   // Chrome 이 막는 페이지(새 탭 · 설정 등)
+  const now=await chrome.tabs.getZoom(tabId);
+  const next=fitZoom(now,size?.sw,size?.cw);
+  if(!next)return {changed:false,zoom:now};
+  const map=await fitted();
+  const prev=map[tabId]?.prev??now;
+  await chrome.tabs.setZoomSettings(tabId,{mode:'automatic',scope:'per-tab'});
+  await chrome.tabs.setZoom(tabId,next);
+  map[tabId]={prev,ours:next,windowId:tab.windowId};
+  await chrome.storage.session.set({fitted:map});
+  return {changed:true,zoom:next,prev};
+}
+// 사이드바가 닫힐 때(사이드바가 pagehide 에 알린다). 같은 창에 사이드바가 다시 열려 있으면 그대로 둔다.
+async function fitRelease(windowId){
+  await new Promise(resolve=>setTimeout(resolve,400));
+  try{ const open=await chrome.runtime.getContexts({contextTypes:['SIDE_PANEL']}); if(open.some(c=>c.windowId===windowId))return {restored:0}; }catch{}
+  return fitRestoreAll(windowId);
+}
+async function fitRestoreAll(windowId){
+  const map=await fitted();let restored=0;
+  for(const [id,info] of Object.entries(map)){
+    if(windowId!==undefined&&info.windowId!==windowId)continue;
+    const tabId=Number(id);
+    try{
+      const now=await chrome.tabs.getZoom(tabId);
+      if(Math.abs(now-info.ours)<0.005){await chrome.tabs.setZoom(tabId,info.prev);await chrome.tabs.setZoomSettings(tabId,{mode:'automatic',scope:'per-origin'});restored++;}
+    }catch{}
+    delete map[id];
+  }
+  await chrome.storage.session.set({fitted:map});
+  return {restored};
+}
 function trusted(sender) { return sender.url?.startsWith(chrome.runtime.getURL('')); }
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{
   if(!m?.type || ['state-changed','lock-state','play-tone'].includes(m.type))return;
@@ -789,9 +864,45 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       const p=await profile();
       if(!p?.proof)return enforce();
       await checkPin(m.current);
-      await chrome.storage.local.set({profile:{...p,proof:null,idleMinutes:0}});
+      await chrome.storage.local.set({profile:{...p,proof:null,idleMinutes:0},secureMarks:false});
       await allow(true);await chrome.storage.local.remove('lockWhy');return enforce();
     }
+    // 보안 북마크(v0.42.0): 켜면 북마크를 열 때 이 확장의 PIN 을 묻는다. 게스트(PIN 없음)는 켜면서 PIN 을 만든다 —
+    // 그 PIN 이 확장 PIN 이 된다. 게스트 때처럼 잠기지는 않게 시작 잠금 · 자리 비움 잠금은 꺼 둔다(사용자가 나중에 켤 수 있다).
+    // 끄려면 PIN 이 필요하다(옆 사람이 끄고 열지 못하게).
+    if(['secure-marks','pin-check','order-set','sync-status'].includes(m.type)&&(await state()).locked)throw Error('먼저 프로필 잠금을 해제하세요.');
+    if(m.type==='secure-marks'){
+      const p=await profile();
+      if(!p)throw Error('프로필이 없습니다.');
+      if(m.on){
+        if(!p.proof){
+          assertPin(m.newPin);
+          await chrome.storage.local.set({profile:{...p,proof:await seal(m.newPin,{kind:'profile'}),idleMinutes:0},startLocked:false,lockOnAway:false});
+          await allow(true);
+        }
+        await chrome.storage.local.set({secureMarks:true});
+      }else{
+        if(p.proof)await checkPin(m.pin);
+        await chrome.storage.local.set({secureMarks:false});
+      }
+      return enforce();
+    }
+    // 보안 북마크를 열 때의 PIN 확인. 잠금 해제와 같은 틀린 횟수 제한을 쓴다(다섯 번 틀리면 30초).
+    if(m.type==='pin-check'){await checkPin(m.pin);return true;}
+    // 끌어서 정한 순서(메모 탭 · 북마크 폴더) — 동기화되어 다른 컴퓨터에서도 같은 순서.
+    if(m.type==='order-set'){
+      const key={notes:'noteOrder',folders:'folderOrder'}[m.kind];
+      if(!key)throw Error('알 수 없는 순서입니다.');
+      const value={v:1,ids:cleanOrder(m.ids),time:Date.now()};
+      const all=await chrome.storage.sync.get(null);
+      checkQuota(all,key,value);
+      await chrome.storage.sync.set({[key]:value});
+      return value;
+    }
+    if(m.type==='fit-set'){await chrome.storage.local.set({fitPage:m.on!==false});if(m.on===false)await fitRestoreAll();return enforce();}
+    if(m.type==='fit-page')return fitPage(Number(m.tabId));
+    if(m.type==='fit-release')return fitRelease(Number(m.windowId));
+    if(m.type==='sync-status')return syncStatus();
     if(m.type==='clip-state')return clipStatus();
     if(m.type==='presenter-command'){
       // 한 번짜리 호출이라 도우미가 뜨고 명령을 넘긴 뒤 바로 끝난다.

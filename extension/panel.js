@@ -1,10 +1,11 @@
 import {unseal,assertPin} from './lib/crypto.js';
-import {noteList,noteKey,stampTitle,particle,checkQuota,safeURL,mergeBookmarks,readBookmarks,editBookmarks} from './lib/data.js';
+import {noteList,noteKey,stampTitle,particle,checkQuota,safeURL,mergeBookmarks,readBookmarks,editBookmarks,applyOrder,moveInOrder} from './lib/data.js';
 import {HOT_DEFAULTS,HOT_ORDER,HOT_LABEL,hotShow,hotFromEvent,hotCheck,hotText,hotClean} from './lib/keys.js';
 import {deliver} from './lib/shots.js';
 import {KIND_LABEL} from './lib/autobackup.js';
 import {collectBackup,sealBackup,plainBackup,openBackup,describeBackup,checkPassphrase,MAX_FILE_BYTES} from './lib/backup.js';
 const $=id=>document.getElementById(id);
+let noteOrder=[],folderOrder=[],marksOpenUntil=0;
 let profileState,device,editingNote=false,currentNoteId=null,unsavedNote=false,myRevision='',markFolder='',vaultItems=[],vaultEpoch=0,vaultBusy=false;
 // 백업 복원 화면이 들고 있는 것. 잠금 상태에서는 비운다(백업 내용이 메모리에 남아 있지 않게).
 let openedBackup=null,backupFile=null,gateBackupFile=null;
@@ -70,6 +71,8 @@ async function renderState(s){
   showPinBox(s);
   $('gate-submit').textContent=s.configured?'내 프로필 사용하기 →':'내 공간 만들기 →';
   $('owner').textContent=s.name;$('settings-name').value=s.name;$('idle').value=String(s.idleMinutes);$('start-locked').checked=s.startLocked!==false;$('lock-away').checked=s.lockOnAway!==false;$('wheel-zoom').checked=s.wheelZoom!==false;
+  $('fit-page').checked=s.fitPage!==false;$('secure-marks').checked=!!s.secureMarks;$('secure-box').hidden=true;
+  if(!s.secureMarks)marksOpenUntil=0;
   if(s.locked||!s.configured){clearBackupPlan();backupFile=null;closeVault();$('note').value='';$('note-title').value='';$('note-tabs').replaceChildren();$('note-versions').replaceChildren();$('note-images').replaceChildren();editingNote=false;currentNoteId=null;unsavedNote=false;}
   // 셋을 따로 읽는다. 예전에는 차례로 읽어 메모나 클립보드 칸에서 한 번 실패하면 북마크를 아예 읽지 않았다 —
   // 다음 변화가 올 때까지 북마크가 빈 목록으로 보였다(사용자 보고: 사라졌다 다시 나타남).
@@ -245,7 +248,7 @@ function renderTabs(list){
   for(const entry of entries){
     const tab=document.createElement('button');
     tab.type='button';tab.className='note-tab';tab.textContent=entry.label;tab.title=entry.label;
-    tab.setAttribute('role','tab');
+    tab.setAttribute('role','tab');tab.dataset.id=entry.id;tab.draggable=true;
     const chosen=entry.id===currentNoteId;
     tab.setAttribute('aria-selected',String(chosen));
     tab.classList.toggle('selected',chosen);
@@ -267,7 +270,8 @@ async function loadNotes(){
   const list=noteList(merged);
   if(!unsavedNote&&!list.some(note=>note.id===currentNoteId))currentNoteId=list[0]?.id||null;
   if(!currentNoteId)startNote();
-  renderTabs(list);renderPins(list);showPin(list);
+  noteOrder=all.noteOrder?.ids||[];
+  renderTabs(applyOrder(list,noteOrder));renderPins(list);showPin(list);
   const note=list.find(item=>item.id===currentNoteId);
   const shown=(syncError&&drafts[currentNoteId])||note?.current||null;
   if(!editingNote){setBox($('note'),shown?.text||'');setBox($('note-title'),shown?.title||$('note-title').value||'새 메모');updateCount();}
@@ -667,13 +671,14 @@ async function loadMarks(){
   const all=await chrome.storage.sync.get(null);
   const snapshots=markRecords(all);
   // 망가진 항목 하나 때문에 목록 전체를 버리지 않는다. 건너뛴 것만 알린다.
+  folderOrder=all.folderOrder?.ids||[];
   const read=snapshots.length?readBookmarks(snapshots):{items:[],skipped:0};
   vaultItems=read.items;
   if(read.skipped)notice(`형식이 맞지 않는 북마크 ${read.skipped}개는 보여 주지 않습니다(다른 기기의 옛 기록일 수 있습니다). 나머지는 그대로입니다.`);
   $('legacy-vault').hidden=!Object.keys(all).some(key=>key.startsWith('vault_'));
   renderFolders();renderBookmarks();
 }
-function folders(){return vaultItems.filter(item=>!item.deleted&&item.type==='folder').sort((a,b)=>a.title.localeCompare(b.title));}
+function folders(){return applyOrder(vaultItems.filter(item=>!item.deleted&&item.type==='folder').sort((a,b)=>a.title.localeCompare(b.title)),folderOrder);}
 function renderFolders(){
   const strip=$('folder-tabs');strip.replaceChildren();
   const known=folders();
@@ -682,6 +687,7 @@ function renderFolders(){
     const tab=document.createElement('button');
     tab.type='button';tab.className='note-tab';tab.textContent=entry.title;tab.title=entry.title;
     tab.setAttribute('role','tab');
+    if(entry.id){tab.dataset.id=entry.id;tab.draggable=true;}
     const chosen=entry.id===markFolder;
     tab.setAttribute('aria-selected',String(chosen));tab.classList.toggle('selected',chosen);
     tab.onclick=()=>{markFolder=entry.id;renderFolders();renderBookmarks();notice();};
@@ -698,7 +704,12 @@ function renderBookmarks(){
   if(!links.length){const empty=document.createElement('p');empty.className='muted';empty.textContent='아직 비어 있어요. 보고 있는 페이지를 담아 보세요.';box.append(empty);return;}
   for(const item of links){
     const row=document.createElement('div');row.className='bookmark';
-    const link=document.createElement('a');link.href=safeURL(item.url);link.target='_blank';link.rel='noopener noreferrer';
+    const link=document.createElement('a');
+    if(profileState?.secureMarks){
+      link.className='secure';link.tabIndex=0;link.setAttribute('role','link');
+      link.onclick=e=>{e.preventDefault();openSecureMark(item).catch(error=>notice(error.message));};
+      link.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();openSecureMark(item).catch(error=>notice(error.message));}};
+    }else{link.href=safeURL(item.url);link.target='_blank';link.rel='noopener noreferrer';}
     const title=document.createElement('strong');title.textContent=item.title;
     const host=document.createElement('small');try{host.textContent=new URL(item.url).hostname;}catch{host.textContent=item.url;}
     link.append(title,host);
@@ -1033,7 +1044,8 @@ chrome.runtime.onMessage.addListener(m=>{if(m.type==='state-changed')renderState
 chrome.storage.onChanged.addListener((changes,area)=>{
   if(area==='sync'){
     if(Object.keys(changes).some(k=>k.startsWith('note_')))loadNotes().catch(e=>notice(e.message));
-    if(Object.keys(changes).some(k=>k.startsWith('marks_')||k.startsWith('vault_'))&&!vaultBusy)loadMarks().catch(e=>notice(e.message));
+    if(Object.keys(changes).some(k=>k.startsWith('marks_')||k.startsWith('vault_')||k==='folderOrder')&&!vaultBusy)loadMarks().catch(e=>notice(e.message));
+    if(changes.noteOrder&&!editingNote)loadNotes().catch(e=>notice(e.message));
     if(changes.hotkeys&&!hotArmed)loadHotkeys().then(refreshPresenter).catch(()=>{});
   }
   if(area==='local'&&(changes.pendingNotes||changes.noteSyncError)){
@@ -1053,7 +1065,11 @@ chrome.storage.onChanged.addListener((changes,area)=>{
 });
 // 저장을 350ms 미뤘으므로, 사이드바가 닫히거나 가려지면 미뤄 둔 글을 먼저 밀어 넣는다.
 function flushNote(){if(!saveTimer)return;clearTimeout(saveTimer);saveTimer=0;saveNote().catch(()=>{});}
-document.addEventListener('visibilitychange',()=>{if(document.hidden){flushNote();closeVault();}});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){flushNote();api('note-flush').catch(()=>{});return;}
+  // 다시 보이면 그 사이 다른 컴퓨터에서 온 것까지 새로 읽는다.
+  if(profileState?.configured&&!profileState.locked){loadNotes().catch(()=>{});if(!$('vault').hidden)loadMarks().catch(()=>{});}
+});
 window.addEventListener('pagehide',flushNote);
 try{$('version').textContent='v'+chrome.runtime.getManifest().version;}catch{$('version').textContent='';}
 // ── 캡처 탭 ─────────────────────────────────────────────────────────────────
@@ -1816,3 +1832,130 @@ async function loadTools(){
 loadTools().catch(()=>{});
 // 백업을 복원하면 화면이 다시 뜬다. 결과는 여기서 알린다(로딩 중 다른 안내가 덮지 않게 잠시 뒤에).
 try{const said=sessionStorage.getItem('daissam-restored');if(said){sessionStorage.removeItem('daissam-restored');setTimeout(()=>notice(said),700);}}catch{}
+
+// ── v0.42.0: 탭 휠 · 끌어서 순서 · 보안 북마크 · 페이지 맞추기 · 동기화 확인 ─────────────
+// 메모 탭 · 북마크 폴더 탭 줄 위에서 휠을 굴리면(Shift 없이) 좌우로 넘긴다.
+for(const id of ['note-tabs','folder-tabs'])$(id).addEventListener('wheel',e=>{
+  const strip=e.currentTarget;
+  if(strip.scrollWidth<=strip.clientWidth+1||Math.abs(e.deltaY)<=Math.abs(e.deltaX))return;
+  strip.scrollLeft+=e.deltaY;e.preventDefault();
+},{passive:false});
+// 끌어서 순서 바꾸기. 순서는 동기화 저장소에 남아 다른 컴퓨터에서도 같다.
+function dragOrder(strip,kind){
+  let dragging=null;
+  const clear=()=>{strip.querySelectorAll('.drop-before,.dragging').forEach(node=>node.classList.remove('drop-before','dragging'));};
+  strip.addEventListener('dragstart',e=>{
+    const tab=e.target.closest?.('[data-id]');if(!tab)return;
+    dragging=tab.dataset.id;tab.classList.add('dragging');
+    e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',dragging);
+  });
+  strip.addEventListener('dragover',e=>{
+    if(!dragging)return;e.preventDefault();e.dataTransfer.dropEffect='move';
+    const over=e.target.closest?.('[data-id]');
+    strip.querySelectorAll('.drop-before').forEach(node=>node.classList.remove('drop-before'));
+    if(over&&over.dataset.id!==dragging)over.classList.add('drop-before');
+  });
+  strip.addEventListener('drop',async e=>{
+    e.preventDefault();
+    const over=e.target.closest?.('[data-id]'),from=dragging;dragging=null;clear();
+    if(!from||!over||over.dataset.id===from)return;
+    const ids=[...strip.querySelectorAll('[data-id]')].map(node=>node.dataset.id);
+    const next=moveInOrder(ids,from,over.dataset.id);
+    try{
+      if(kind==='notes'){noteOrder=next;await loadNotes();}else{folderOrder=next;renderFolders();renderBookmarks();}
+      await api('order-set',{kind,ids:next});
+    }catch(error){notice(error.message);}
+  });
+  strip.addEventListener('dragend',()=>{dragging=null;clear();});
+}
+dragOrder($('note-tabs'),'notes');dragOrder($('folder-tabs'),'folders');
+
+// 보안 북마크: 누르면 PIN 을 묻고, 맞히면 5분 동안은 다시 묻지 않는다(이 사이드바 안에서만).
+const MARK_GRACE=5*60*1000;
+async function openSecureMark(item){
+  const url=safeURL(item.url);
+  if(Date.now()<marksOpenUntil){await chrome.tabs.create({url});return;}
+  const dialog=$('mark-pin');
+  $('mark-pin-what').textContent=item.title+' — 열려면 PIN 을 입력하세요.';
+  $('mark-pin-input').value='';$('mark-pin-error').textContent='';
+  dialog.dataset.url=url;dialog.showModal();$('mark-pin-input').focus();
+}
+$('mark-pin-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const dialog=$('mark-pin'),pin=$('mark-pin-input').value;
+  try{
+    await api('pin-check',{pin});
+    marksOpenUntil=Date.now()+MARK_GRACE;
+    dialog.close();
+    await chrome.tabs.create({url:dialog.dataset.url});
+  }catch(error){$('mark-pin-error').textContent=error.message;$('mark-pin-input').select();}
+  finally{$('mark-pin-input').value='';}
+});
+event('mark-pin-cancel','click',()=>{$('mark-pin-input').value='';$('mark-pin').close();});
+// 설정: 보안 북마크 켜고 끄기. 게스트는 켤 때 PIN 을 만들고, 끌 때는 PIN 이 필요하다.
+let secureWant=null;
+function secureAsk(on){
+  secureWant=on;
+  const guest=!!profileState?.guest;
+  $('secure-ask').textContent=on?(guest?'게스트는 PIN 이 없습니다. 보안 북마크와 확장에 쓸 PIN(숫자 4~12자리)을 만드세요. 잠금은 지금처럼 꺼진 채로 둡니다.':''):'보안 북마크를 끄려면 지금 PIN 을 입력하세요.';
+  $('secure-pin2-label').hidden=!(on&&guest);
+  $('secure-pin').value='';$('secure-pin2').value='';
+  $('secure-box').hidden=false;$('secure-pin').focus();
+}
+event('secure-marks','change',async()=>{
+  const on=$('secure-marks').checked;
+  $('secure-marks').checked=!on;   // 확인을 마칠 때까지 바꾸지 않는다
+  if(on&&!profileState?.guest){renderState(await api('secure-marks',{on:true}));notice('보안 북마크를 켰습니다. 북마크를 열 때 PIN 을 묻습니다.');return;}
+  secureAsk(on);
+});
+event('secure-go','click',async()=>{
+  const pin=$('secure-pin').value;
+  if(secureWant&&profileState?.guest){
+    assertPin(pin);
+    if(pin!==$('secure-pin2').value)throw Error('두 PIN이 일치하지 않습니다.');
+    await renderState(await api('secure-marks',{on:true,newPin:pin}));
+    notice('PIN 을 만들고 보안 북마크를 켰습니다. 이 PIN 이 이제 확장 PIN 입니다(잠금은 꺼진 채 — 설정에서 켤 수 있습니다).');
+  }else{
+    await renderState(await api('secure-marks',{on:false,pin}));
+    notice('보안 북마크를 껐습니다.');
+  }
+  marksOpenUntil=0;renderBookmarks();
+});
+event('secure-cancel','click',()=>{$('secure-box').hidden=true;$('secure-pin').value='';$('secure-pin2').value='';});
+
+// 페이지 맞추기: 이 사이드바가 붙은 창의 지금 탭을 맞춘다. 사이드바로 열린 때만(탭이나 잠금 해제 창으로 열면 하지 않는다).
+let fitWindow=null;
+async function fitActive(){
+  if(fitWindow===null||!profileState?.fitPage)return;
+  const [tab]=await chrome.tabs.query({active:true,windowId:fitWindow});
+  if(tab)await api('fit-page',{tabId:tab.id}).catch(()=>{});
+}
+(async()=>{
+  if(await chrome.tabs.getCurrent())return;            // 탭으로 연 사이드바 화면(시험 · 잠금 해제 창)
+  fitWindow=(await chrome.windows.getCurrent()).id;
+  setTimeout(()=>fitActive().catch(()=>{}),500);        // 사이드바가 자리를 잡고 페이지가 좁아진 뒤
+  chrome.tabs.onActivated.addListener(info=>{if(info.windowId===fitWindow)setTimeout(()=>fitActive().catch(()=>{}),300);});
+  chrome.tabs.onUpdated.addListener((tabId,change,tab)=>{if(change.status==='complete'&&tab.active&&tab.windowId===fitWindow)fitActive().catch(()=>{});});
+  let resized=0;window.addEventListener('resize',()=>{clearTimeout(resized);resized=setTimeout(()=>fitActive().catch(()=>{}),400);});
+  window.addEventListener('pagehide',()=>{chrome.runtime.sendMessage({type:'fit-release',windowId:fitWindow}).catch(()=>{});});
+})().catch(()=>{});
+event('fit-page','change',async()=>{
+  await renderState(await api('fit-set',{on:$('fit-page').checked}));
+  if($('fit-page').checked)await fitActive();
+  notice($('fit-page').checked?'사이드바를 열면 페이지를 줄여 맞춥니다.':'페이지 맞추기를 껐습니다. 줄여 둔 탭은 원래 배율로 돌렸습니다.');
+});
+
+// 동기화 확인: 이 컴퓨터에서 기다리던 메모를 바로 올리고, Chrome 동기화에 와 있는 것을 다시 읽는다.
+// 다른 컴퓨터가 아직 올리지 못한 메모는 가져올 수 없다 — 그 컴퓨터가 켜져 인터넷에 붙어야 올라온다.
+const osName=os=>os==='mac'?'맥':os==='win'?'윈도우':'다른';
+event('sync-check','click',async()=>{
+  const box=$('sync-box');box.hidden=false;box.textContent='확인하는 중…';
+  await saveNow().catch(()=>{});await api('note-flush').catch(()=>{});
+  const st=await api('sync-status');
+  const lines=[st.pending?`⚠ 이 컴퓨터: 아직 올리지 못한 메모 ${st.pending}개${st.error?' — '+st.error:' — 인터넷 연결을 확인하세요'}`:'✓ 이 컴퓨터: 모든 메모를 Chrome 동기화로 올렸습니다.'];
+  for(const d of st.devices.filter(d=>!d.me))
+    lines.push(`${osName(d.os)} 컴퓨터(${d.device.slice(0,6)}) · 마지막으로 올림 ${new Date(d.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}`+(d.pending?` · 그때 못 올린 메모 ${d.pending}개`:''));
+  lines.push('다른 컴퓨터에서 쓴 메모는 그 컴퓨터가 켜져 인터넷에 연결되어야 올라옵니다. Chrome 동기화를 억지로 당겨 올 수는 없어, 여기서는 지금 와 있는 것을 다시 읽습니다.');
+  box.textContent=lines.join('\n');
+  await loadNotes();
+});
