@@ -51,6 +51,7 @@ export function noteGroups(all) {
       text: typeof value.text === 'string' ? value.text : '',
       time: Number(value.time) || 0, created: Number(value.created) || Number(value.time) || 0,
       pinned: value.pinned === true,
+      secret: value.secret === true,
       deleted: !!value.deleted
     };
     const list = groups.get(parsed.id) || [];

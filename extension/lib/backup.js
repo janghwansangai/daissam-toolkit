@@ -112,7 +112,7 @@ function cleanNotes(list, skip) {
     if (!id || seen.has(id) || typeof note.text !== 'string' || note.text.length > LIMITS.noteText) { skip.n++; continue; }
     seen.add(id);
     const time = stamp(note.time);
-    out.push({id, title: cleanTitle(note.title), text: note.text, time, created: stamp(note.created) || time, pinned: note.pinned === true});
+    out.push({id, title: cleanTitle(note.title), text: note.text, time, created: stamp(note.created) || time, pinned: note.pinned === true, ...(note.secret === true ? {secret: true} : {})});
   }
   return out;
 }
@@ -251,7 +251,7 @@ export function mergedNotes(sync, local) {
 export function collectNotes(sync, local) {
   return [...noteGroups(mergedNotes(sync, local)).values()].map(versions => versions[0]).filter(note => !note.deleted)
     .sort((a, b) => (a.created - b.created) || a.id.localeCompare(b.id))
-    .map(({id, title, text, time, created, pinned}) => ({id, title, text, time, created, pinned}));
+    .map(({id, title, text, time, created, pinned, secret}) => ({id, title, text, time, created, pinned, ...(secret ? {secret: true} : {})}));
 }
 export function markSnapshots(sync) {
   return Object.entries(sync).filter(([key, value]) => key.startsWith('marks_') && value?.kind === 'bookmarks' && Array.isArray(value.items)).map(([, value]) => value);

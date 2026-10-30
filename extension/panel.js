@@ -1,11 +1,14 @@
 import {unseal,assertPin} from './lib/crypto.js';
 import {noteList,noteKey,stampTitle,particle,checkQuota,safeURL,mergeBookmarks,readBookmarks,editBookmarks,applyOrder,moveInOrder} from './lib/data.js';
 import {HOT_DEFAULTS,HOT_ORDER,HOT_LABEL,hotShow,hotFromEvent,hotCheck,hotText,hotClean} from './lib/keys.js';
-import {deliver} from './lib/shots.js';
+import {deliver,toBase64,putShot,editorURL} from './lib/shots.js';
 import {KIND_LABEL} from './lib/autobackup.js';
 import {collectBackup,sealBackup,plainBackup,openBackup,describeBackup,checkPassphrase,MAX_FILE_BYTES} from './lib/backup.js';
 const $=id=>document.getElementById(id);
 let noteOrder=[],folderOrder=[],marksOpenUntil=0;
+// 비밀 메모(v0.43.0): 지금 열어 둔 비밀 메모 하나. 다른 메모로 옮기거나 사이드바가 가려지거나 잠기면 비운다.
+let secretOpenId=null,currentSecret=false;
+function secretCovered(){return currentSecret&&secretOpenId!==currentNoteId;}
 let profileState,device,editingNote=false,currentNoteId=null,unsavedNote=false,myRevision='',markFolder='',vaultItems=[],vaultEpoch=0,vaultBusy=false;
 // 백업 복원 화면이 들고 있는 것. 잠금 상태에서는 비운다(백업 내용이 메모리에 남아 있지 않게).
 let openedBackup=null,backupFile=null,gateBackupFile=null;
@@ -73,7 +76,7 @@ async function renderState(s){
   $('owner').textContent=s.name;$('settings-name').value=s.name;$('idle').value=String(s.idleMinutes);$('start-locked').checked=s.startLocked!==false;$('lock-away').checked=s.lockOnAway!==false;$('wheel-zoom').checked=s.wheelZoom!==false;
   $('fit-page').checked=s.fitPage!==false;$('secure-marks').checked=!!s.secureMarks;$('secure-box').hidden=true;
   if(!s.secureMarks)marksOpenUntil=0;
-  if(s.locked||!s.configured){clearBackupPlan();backupFile=null;closeVault();$('note').value='';$('note-title').value='';$('note-tabs').replaceChildren();$('note-versions').replaceChildren();$('note-images').replaceChildren();editingNote=false;currentNoteId=null;unsavedNote=false;}
+  if(s.locked||!s.configured){secretOpenId=null;clearBackupPlan();backupFile=null;closeVault();$('note').value='';$('note-title').value='';$('note-tabs').replaceChildren();$('note-versions').replaceChildren();$('note-images').replaceChildren();editingNote=false;currentNoteId=null;unsavedNote=false;}
   // 셋을 따로 읽는다. 예전에는 차례로 읽어 메모나 클립보드 칸에서 한 번 실패하면 북마크를 아예 읽지 않았다 —
   // 다음 변화가 올 때까지 북마크가 빈 목록으로 보였다(사용자 보고: 사라졌다 다시 나타남).
   else {
@@ -237,22 +240,27 @@ for(const button of document.querySelectorAll('nav button'))button.addEventListe
   if(button.dataset.page==='presenter')refreshPresenter();
 });
 function updateCount(){const count=new TextEncoder().encode($('note').value).length;$('note-count').textContent=count.toLocaleString()+' / 5,500 B';}
-function startNote(){currentNoteId=crypto.randomUUID();unsavedNote=true;editingNote=false;$('note').value='';$('note-title').value=stampTitle();updateCount();}
-async function pickNote(id){currentNoteId=id;unsavedNote=false;editingNote=false;await loadNotes();await loadClip();}
+function startNote(){secretOpenId=null;currentSecret=false;coverNote(false);currentNoteId=crypto.randomUUID();unsavedNote=true;editingNote=false;$('note').value='';$('note-title').value=stampTitle();updateCount();}
+// 탭을 눌러 고른 비밀 메모는 바로 PIN 을 묻는다(사이드바를 열 때 저절로 묻지는 않는다).
+async function pickNote(id,ask=false){
+  if(id!==currentNoteId)secretOpenId=null;
+  currentNoteId=id;unsavedNote=false;editingNote=false;await loadNotes();await loadClip();
+  if(ask&&secretCovered())await openSecret();
+}
 // One click per note: the strip scrolls sideways once more notes exist than fit.
 let shownTab=null;
 function renderTabs(list){
   const strip=$('note-tabs');strip.replaceChildren();
-  const entries=[...list.map(note=>({id:note.id,label:note.current.title}))];
+  const entries=[...list.map(note=>({id:note.id,label:note.current.title,secret:note.current.secret}))];
   if(unsavedNote&&currentNoteId)entries.unshift({id:currentNoteId,label:$('note-title').value||'새 메모'});
   for(const entry of entries){
     const tab=document.createElement('button');
     tab.type='button';tab.className='note-tab';tab.textContent=entry.label;tab.title=entry.label;
-    tab.setAttribute('role','tab');tab.dataset.id=entry.id;tab.draggable=true;
+    tab.setAttribute('role','tab');tab.dataset.id=entry.id;tab.draggable=true;tab.classList.toggle('secret',!!entry.secret);
     const chosen=entry.id===currentNoteId;
     tab.setAttribute('aria-selected',String(chosen));
     tab.classList.toggle('selected',chosen);
-    tab.onclick=()=>{if(entry.id!==currentNoteId)pickNote(entry.id).catch(error=>notice(error.message));};
+    tab.onclick=()=>{if(entry.id!==currentNoteId||secretCovered())pickNote(entry.id,true).catch(error=>notice(error.message));};
     strip.append(tab);
     // 글자를 칠 때마다 스크롤하면 Windows IME 의 조합이 끊긴다. 고른 메모가 바뀐 때만 옮긴다.
     if(chosen&&shownTab!==entry.id){shownTab=entry.id;requestAnimationFrame(()=>tab.scrollIntoView({block:'nearest',inline:'nearest'}));}
@@ -274,6 +282,17 @@ async function loadNotes(){
   renderTabs(applyOrder(list,noteOrder));renderPins(list);showPin(list);
   const note=list.find(item=>item.id===currentNoteId);
   const shown=(syncError&&drafts[currentNoteId])||note?.current||null;
+  currentSecret=!unsavedNote&&!!(shown?.secret||note?.current.secret);
+  $('note-secret').checked=currentSecret;
+  // 잠긴 비밀 메모는 글을 화면(DOM)에 아예 넣지 않는다. 저장도 막는다(빈 글상자가 메모를 덮어쓰지 않게 — saveNote).
+  if(secretCovered()){
+    editingNote=false;coverNote(true);
+    $('note').value='';setBox($('note-title'),shown?.title||'비밀 메모');$('note-count').textContent='🔒';
+    $('note-versions').replaceChildren();$('version-count').textContent='';
+    $('note-status').textContent='비밀 메모 · 잠김';
+    return;
+  }
+  coverNote(false);
   if(!editingNote){setBox($('note'),shown?.text||'');setBox($('note-title'),shown?.title||$('note-title').value||'새 메모');updateCount();}
   $('note-status').textContent=syncError?'로컬 보관 · 동기화 오류':Object.keys(pending).length?'이 기기에 저장 · 동기화 대기':'Chrome 동기화 저장소 사용';
   if(syncError)notice(syncError);
@@ -291,28 +310,59 @@ async function loadClip(){
   const local=await chrome.storage.local.get(['clipboardImport','clipError','noteImages']);
   const on=!!local.clipboardImport,error=local.clipError||'';
   $('clip-toggle').checked=on;
-  $('clip-state').textContent=error?'연결 안 됨':on?'가져오는 중':'꺼짐';
+  // 켜 두었는데 도우미가 오류를 알렸으면 ‘오류’, 연결이 끊겨 꺼졌으면 ‘연결 안 됨’. 까닭은 바로 아래 줄에 남긴다
+  // (예전에는 잠깐 뜨는 알림에만 있어 무엇을 해야 할지 몰랐다 — 사용자 보고, 윈도우).
+  $('clip-state').textContent=error?(on?'오류':'연결 안 됨'):on?'가져오는 중':'꺼짐';
   $('clip-state').classList.toggle('on',on&&!error);
-  if(error)notice(error);
-  const shots=(local.noteImages||{})[currentNoteId]||[];
-  $('shots').hidden=!shots.length;
+  $('clip-why').textContent=error;$('clip-why').hidden=!error;
+  const note=currentNoteId;
+  const shots=[...((local.noteImages||{})[note]||[])].sort((a,b)=>(a.time||0)-(b.time||0));
+  $('shots').hidden=!shots.length||secretCovered();
   $('image-count').textContent=shots.length?`(${shots.length})`:'';
-  const box=$('note-images');box.replaceChildren();
+  const box=$('note-images');
+  if(secretCovered()){box.replaceChildren();return;}
+  const blobs=await pastedBlobs(shots.map(shot=>shot.id)).catch(()=>new Map());
+  // 원본을 읽는 사이 다른 메모로 옮겼거나 잠겼으면 그리지 않는다(그 뒤의 loadClip 이 그린다).
+  if(note!==currentNoteId||secretCovered())return;
+  for(const url of shotURLs)URL.revokeObjectURL(url);
+  shotURLs=[];
+  box.replaceChildren();
+  // 오래된 그림이 위, 새로 붙인 그림이 아래로 쌓인다(사용자 요청).
   for(const shot of shots){
-    const row=document.createElement('div');row.className='shot';
+    const blob=blobs.get(shot.id)||null;
+    const card=document.createElement('figure');card.className='shot';
     const image=document.createElement('img');image.alt=shot.name;
     image.onerror=()=>{image.removeAttribute('src');image.classList.add('missing');};
-    if(shot.thumb)image.src='data:image/png;base64,'+shot.thumb; else image.classList.add('missing');
+    if(blob){const url=URL.createObjectURL(blob);shotURLs.push(url);image.src=url;}
+    else if(shot.thumb)image.src='data:image/png;base64,'+shot.thumb; else image.classList.add('missing');
+    const caption=document.createElement('figcaption');
     const meta=document.createElement('div');meta.className='shot-meta';
     const name=document.createElement('small');name.textContent=shot.name;
-    const size=document.createElement('small');size.textContent=`${shot.width}×${shot.height} · 바탕화면`;
+    const size=document.createElement('small');size.textContent=`${shot.width}×${shot.height} · `+(blob?'이 컴퓨터':shot.file?'바탕화면 캡처이미지':'미리보기만');
     meta.append(name,size);
-    const copy=document.createElement('button');copy.className='secondary';copy.textContent='복사';
-    copy.onclick=async()=>{try{notice();await api('clip-copy',{file:shot.file});notice('이미지를 클립보드에 올렸습니다. 붙여넣을 곳에서 Ctrl+V(Mac은 Command+V) 하세요.');}catch(error){notice(error.message);}};
-    const drop=document.createElement('button');drop.className='quiet';drop.textContent='빼기';
-    drop.onclick=async()=>{try{notice();await api('clip-remove',{id:shot.id,note:currentNoteId});await loadClip();}catch(error){notice(error.message);}};
-    row.append(image,meta,copy,drop);box.append(row);
+    const copy=document.createElement('button');copy.className='secondary';copy.type='button';copy.textContent='복사';
+    copy.onclick=async()=>{
+      try{
+        notice();
+        // 원본이 없으면(백업에서 되살린 그림 등) 미리보기라도 올린다.
+        if(blob)await copyImage(blob);
+        else if(shot.file)await api('clip-copy',{file:shot.file});
+        else await copyImage(await (await fetch('data:image/png;base64,'+shot.thumb)).blob());
+        notice('그림을 클립보드에 올렸습니다. 붙여넣을 곳에서 Ctrl+V(Mac은 Command+V) 하세요.');
+      }catch(error){notice(error.message);}
+    };
+    caption.append(meta,copy);
+    if(blob){
+      const edit=document.createElement('button');edit.className='quiet';edit.type='button';edit.textContent='크게 · 편집';
+      edit.onclick=async()=>{try{notice();await chrome.tabs.create({url:editorURL(await putShot(blob,{title:shot.name}))});}catch(error){notice(error.message);}};
+      caption.append(edit);
+    }
+    const drop=document.createElement('button');drop.className='quiet';drop.type='button';drop.textContent='빼기';
+    drop.onclick=async()=>{try{notice();await api('clip-remove',{id:shot.id,note});await pastedDrop(shot.id).catch(()=>{});await loadClip();}catch(error){notice(error.message);}};
+    caption.append(drop);
+    card.append(image,caption);box.append(card);
   }
+  sweepPasted(local.noteImages||{});
 }
 event('clip-toggle','change',async()=>{
   const on=$('clip-toggle').checked;
@@ -320,7 +370,7 @@ event('clip-toggle','change',async()=>{
   if(on)notice('켠 뒤에 복사하거나 캡처한 내용만 가져옵니다. 비밀번호 같은 민감한 내용이 클립보드에 들어오면 그대로 메모에 남습니다.');
 });
 async function saveNote(){
-  if(!currentNoteId)return;
+  if(!currentNoteId||secretCovered())return;
   if(!$('note-title').value.trim())$('note-title').value=stampTitle();
   const saved=await api('note-save',{id:currentNoteId,title:$('note-title').value,text:$('note').value,tag:windowTag});
   myRevision=saved?.revision||'';
@@ -1056,9 +1106,13 @@ chrome.storage.onChanged.addListener((changes,area)=>{
     if(editingNote&&mine&&mine!==myRevision&&writer&&writer!==windowTag)editingNote=false;
     loadNotes().catch(e=>notice(e.message));
   }
-  if(area==='local'&&changes.lastImportId?.newValue&&!editingNote){
-    currentNoteId=changes.lastImportId.newValue;unsavedNote=false;
-    loadNotes().then(loadClip).catch(e=>notice(e.message));
+  if(area==='local'&&(changes.lastImportId?.newValue||changes.lastImportAt)&&!editingNote){
+    chrome.storage.local.get('lastImportId').then(({lastImportId})=>{
+      if(!lastImportId)return;
+      if(lastImportId!==currentNoteId)secretOpenId=null;
+      currentNoteId=lastImportId;unsavedNote=false;
+      return loadNotes().then(loadClip);
+    }).catch(e=>notice(e.message));
     return;
   }
   if(area==='local'&&(changes.noteImages||changes.clipboardImport||changes.clipError))loadClip().catch(e=>notice(e.message));
@@ -1066,7 +1120,16 @@ chrome.storage.onChanged.addListener((changes,area)=>{
 // 저장을 350ms 미뤘으므로, 사이드바가 닫히거나 가려지면 미뤄 둔 글을 먼저 밀어 넣는다.
 function flushNote(){if(!saveTimer)return;clearTimeout(saveTimer);saveTimer=0;saveNote().catch(()=>{});}
 document.addEventListener('visibilitychange',()=>{
-  if(document.hidden){flushNote();api('note-flush').catch(()=>{});return;}
+  // 가려지면 미뤄 둔 글을 먼저 밀어 넣고(flushNote 는 글을 곧바로 읽어 간다), 열어 둔 비밀 메모를 다시 잠근다.
+  if(document.hidden){
+    flushNote();api('note-flush').catch(()=>{});
+    if(secretOpenId){
+      secretOpenId=null;
+      if(currentSecret){coverNote(true);$('note').value='';$('note-images').replaceChildren();$('shots').hidden=true;$('note-versions').replaceChildren();}
+      $('pin-deck').replaceChildren();   // 고정 카드에 열려 있던 글도 치운다. 다시 보이면 loadNotes 가 잠긴 모양으로 그린다.
+    }
+    return;
+  }
   // 다시 보이면 그 사이 다른 컴퓨터에서 온 것까지 새로 읽는다.
   if(profileState?.configured&&!profileState.locked){loadNotes().catch(()=>{});if(!$('vault').hidden)loadMarks().catch(()=>{});}
 });
@@ -1304,12 +1367,13 @@ function renderPins(list){
     const head=document.createElement('div');head.className='pin-head';
     const title=document.createElement('strong');title.textContent=note.current.title;
     title.style.cursor='pointer';title.title='이 메모 편집하기';
-    title.onclick=()=>pickNote(note.id).catch(error=>notice(error.message));
+    title.onclick=()=>pickNote(note.id,true).catch(error=>notice(error.message));
     const off=document.createElement('button');off.type='button';off.textContent='고정 해제';
     off.onclick=async()=>{try{notice();await api('note-pin',{id:note.id,pinned:false});await loadNotes();}catch(error){notice(error.message);}};
     head.append(title,off);
     const body=document.createElement('div');body.className='pin-body';
-    body.textContent=note.current.text||'(내용 없음)';
+    // 고정한 비밀 메모도 열어 둔 동안에만 글을 보인다.
+    body.textContent=note.current.secret&&secretOpenId!==note.id?'🔒 비밀 메모 — 제목을 눌러 PIN 을 넣으면 열립니다.':note.current.text||'(내용 없음)';
     card.append(head,body);deck.append(card);
   }
 }
@@ -1870,28 +1934,40 @@ function dragOrder(strip,kind){
 }
 dragOrder($('note-tabs'),'notes');dragOrder($('folder-tabs'),'folders');
 
+// PIN 묻기 창 하나를 보안 북마크 · 비밀 메모가 함께 쓴다. 맞힌 PIN 을 돌려주고, 그만두면 null.
+// create: PIN 이 없는 게스트가 새로 만든다(두 번 입력) — 그 PIN 이 확장 PIN 이 되고 잠금은 꺼진 채로 둔다.
+let pinAsk=null;
+function askPin({head,what,go='열기',create=false}){
+  pinAsk?.resolve(null);
+  $('mark-pin-head').textContent=head;$('mark-pin-what').textContent=what;$('mark-pin-go').textContent=go;
+  $('mark-pin-input2').hidden=!create;
+  $('mark-pin-input').value='';$('mark-pin-input2').value='';$('mark-pin-error').textContent='';
+  return new Promise(resolve=>{pinAsk={resolve,create};$('mark-pin').showModal();$('mark-pin-input').focus();});
+}
+function endPinAsk(pin){const ask=pinAsk;pinAsk=null;$('mark-pin-input').value='';$('mark-pin-input2').value='';if($('mark-pin').open)$('mark-pin').close();ask?.resolve(pin);}
+$('mark-pin-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const pin=$('mark-pin-input').value;
+  try{
+    if(pinAsk?.create){
+      assertPin(pin);
+      if(pin!==$('mark-pin-input2').value)throw Error('두 PIN이 일치하지 않습니다.');
+      await renderState(await api('pin-make',{pin}));
+    }else await api('pin-check',{pin});
+    endPinAsk(pin);
+  }catch(error){$('mark-pin-error').textContent=error.message;$('mark-pin-input').value='';$('mark-pin-input').focus();}
+});
+event('mark-pin-cancel','click',()=>endPinAsk(null));
+$('mark-pin').addEventListener('close',()=>{if(pinAsk)endPinAsk(null);});
 // 보안 북마크: 누르면 PIN 을 묻고, 맞히면 5분 동안은 다시 묻지 않는다(이 사이드바 안에서만).
 const MARK_GRACE=5*60*1000;
 async function openSecureMark(item){
   const url=safeURL(item.url);
   if(Date.now()<marksOpenUntil){await chrome.tabs.create({url});return;}
-  const dialog=$('mark-pin');
-  $('mark-pin-what').textContent=item.title+' — 열려면 PIN 을 입력하세요.';
-  $('mark-pin-input').value='';$('mark-pin-error').textContent='';
-  dialog.dataset.url=url;dialog.showModal();$('mark-pin-input').focus();
+  if(await askPin({head:'보안 북마크',what:item.title+' — 열려면 PIN 을 입력하세요.'})===null)return;
+  marksOpenUntil=Date.now()+MARK_GRACE;
+  await chrome.tabs.create({url});
 }
-$('mark-pin-form').addEventListener('submit',async e=>{
-  e.preventDefault();
-  const dialog=$('mark-pin'),pin=$('mark-pin-input').value;
-  try{
-    await api('pin-check',{pin});
-    marksOpenUntil=Date.now()+MARK_GRACE;
-    dialog.close();
-    await chrome.tabs.create({url:dialog.dataset.url});
-  }catch(error){$('mark-pin-error').textContent=error.message;$('mark-pin-input').select();}
-  finally{$('mark-pin-input').value='';}
-});
-event('mark-pin-cancel','click',()=>{$('mark-pin-input').value='';$('mark-pin').close();});
 // 설정: 보안 북마크 켜고 끄기. 게스트는 켤 때 PIN 을 만들고, 끌 때는 PIN 이 필요하다.
 let secureWant=null;
 function secureAsk(on){
@@ -1958,4 +2034,132 @@ event('sync-check','click',async()=>{
   lines.push('다른 컴퓨터에서 쓴 메모는 그 컴퓨터가 켜져 인터넷에 연결되어야 올라옵니다. Chrome 동기화를 억지로 당겨 올 수는 없어, 여기서는 지금 와 있는 것을 다시 읽습니다.');
   box.textContent=lines.join('\n');
   await loadNotes();
+});
+
+// ── 비밀 메모(v0.43.0) ─────────────────────────────────────────────────────
+// 메모 칸 바로 위의 체크로 이 메모만 PIN 을 묻는다(확장 PIN 과 같다). 글은 암호화하지 않는다 — 여는 것을 막는 표시다.
+// 잠긴 동안은 글 · 그림 · 다른 기기 사본을 화면에 넣지 않고, 저장 · 복사 · 인쇄 · 내보내기 · 지우기 · 고정 단추를 막는다.
+function coverNote(on){
+  $('secret-cover').hidden=!on;$('note').hidden=on;$('note-title').readOnly=on;
+  for(const id of ['save-note','copy-note','print-note','export-note','delete-note','pin-note'])$(id).disabled=on;
+}
+async function openSecret(){
+  const id=currentNoteId,guest=!!profileState?.guest;
+  const pin=await askPin(guest
+    ?{head:'비밀 메모',what:'이 컴퓨터에는 아직 PIN 이 없습니다. 비밀 메모를 열 PIN(숫자 4~12자리)을 만드세요. 이 PIN 이 확장 PIN 이 되고, 잠금은 지금처럼 꺼진 채로 둡니다.',go:'PIN 만들고 열기',create:true}
+    :{head:'비밀 메모',what:$('note-title').value+' — 열려면 PIN 을 입력하세요.'});
+  if(pin===null||id!==currentNoteId)return;
+  secretOpenId=id;editingNote=false;
+  await loadNotes();await loadClip();
+}
+event('secret-open','click',openSecret);
+event('note-secret','change',async()=>{
+  const on=$('note-secret').checked;
+  $('note-secret').checked=!on;   // 확인을 마칠 때까지 바꾸지 않는다
+  if(!currentNoteId)return;
+  if(on){
+    if(unsavedNote||saveTimer)await saveNow();
+    if(profileState?.guest&&await askPin({head:'비밀 메모',what:'게스트는 PIN 이 없습니다. 비밀 메모에 쓸 PIN(숫자 4~12자리)을 만드세요. 이 PIN 이 확장 PIN 이 되고, 잠금은 지금처럼 꺼진 채로 둡니다.',go:'PIN 만들기',create:true})===null)return;
+    await api('note-secret',{id:currentNoteId,on:true});
+    secretOpenId=currentNoteId;   // 방금 켠 사람에게는 그대로 열어 둔다. 옮기거나 사이드바를 닫으면 잠긴다.
+    await loadNotes();
+    notice('비밀 메모로 바꿨습니다. 다른 메모로 옮기거나 사이드바를 닫으면 잠기고, 열 때 PIN 을 묻습니다. 글은 암호화되지 않고 여는 것만 막습니다.');
+    return;
+  }
+  // 게스트 컴퓨터(다른 컴퓨터가 비밀로 한 메모)는 확인할 PIN 이 없으므로 먼저 만든다 — 그래야 풀 수 있다.
+  const pin=await askPin(profileState?.guest
+    ?{head:'비밀 메모 풀기',what:'이 컴퓨터에는 아직 PIN 이 없습니다. PIN(숫자 4~12자리)을 만들면 풀 수 있습니다. 이 PIN 이 확장 PIN 이 되고, 잠금은 꺼진 채로 둡니다.',go:'PIN 만들고 풀기',create:true}
+    :{head:'비밀 메모 풀기',what:'비밀 메모를 풀려면 PIN 을 입력하세요.',go:'풀기'});
+  if(pin===null)return;
+  await api('note-secret',{id:currentNoteId,on:false,pin});
+  await loadNotes();await loadClip();
+  notice('비밀 메모를 풀었습니다.');
+});
+
+// ── 메모에 그림 붙여넣기(v0.43.0) ────────────────────────────────────────────
+// Ctrl+V(맥 Command+V)로 붙인 그림을 이 메모 아래에 쌓는다. 발표 도우미 없이도 된다(윈도우 캡처 도구 Win+Shift+S 로 찍고 붙이기).
+// 원본은 이 컴퓨터의 확장 저장소(IndexedDB)에만, 목록과 작은 미리보기는 noteImages 에 둔다. 그림 id 로 짝을 맞춘다.
+const PASTE_DB='dais-note-images',PASTE_STORE='images';
+let shotURLs=[],sweptAt=0;
+function pasteDB(mode,work){
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open(PASTE_DB,1);
+    request.onupgradeneeded=()=>request.result.createObjectStore(PASTE_STORE);
+    request.onerror=()=>reject(request.error);
+    request.onsuccess=()=>{
+      const db=request.result,tx=db.transaction(PASTE_STORE,mode),result=work(tx.objectStore(PASTE_STORE));
+      tx.oncomplete=()=>{db.close();resolve(result);};
+      tx.onerror=()=>{db.close();reject(tx.error);};
+    };
+  });
+}
+async function pastedBlobs(ids){
+  if(!ids.length)return new Map();
+  const asks=await pasteDB('readonly',store=>ids.map(id=>[id,store.get(id)]));
+  return new Map(asks.filter(([,ask])=>ask.result?.blob instanceof Blob).map(([id,ask])=>[id,ask.result.blob]));
+}
+function pastedDrop(id){return pasteDB('readwrite',store=>{store.delete(id);});}
+// 목록에서 빠진 그림(빼기 · 메모 지우기 · 40장 한도)의 원본을 치운다. 막 넣는 중인 것은 2분 동안 건드리지 않는다.
+function sweepPasted(images){
+  if(Date.now()-sweptAt<60000)return;
+  sweptAt=Date.now();
+  const keep=new Set(Object.values(images).flat().map(shot=>shot?.id));
+  pasteDB('readwrite',store=>{
+    const cursor=store.openCursor();
+    cursor.onsuccess=()=>{const at=cursor.result;if(!at)return;if(!keep.has(at.key)&&Date.now()-(at.value?.at||0)>120000)at.delete();at.continue();};
+  }).catch(()=>{});
+}
+async function thumbOf(blob){
+  const bitmap=await createImageBitmap(blob);
+  try{
+    const factor=Math.min(1,240/Math.max(bitmap.width,bitmap.height));
+    const canvas=new OffscreenCanvas(Math.max(1,Math.round(bitmap.width*factor)),Math.max(1,Math.round(bitmap.height*factor)));
+    canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
+    return {thumb:await toBase64(await canvas.convertToBlob({type:'image/png'})),width:bitmap.width,height:bitmap.height};
+  }finally{bitmap.close();}
+}
+async function pngOf(blob){
+  if(blob.type==='image/png')return blob;
+  const bitmap=await createImageBitmap(blob);
+  try{const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);canvas.getContext('2d').drawImage(bitmap,0,0);return await canvas.convertToBlob({type:'image/png'});}
+  finally{bitmap.close();}
+}
+// 자동 가져오기가 켜져 있으면 잠깐 멈추고 올린다 — 방금 올린 그림을 도우미가 새 캡처로 다시 가져가지 않게.
+async function copyImage(blob){
+  const held=await api('clip-hold',{on:true}).catch(()=>false);
+  try{await navigator.clipboard.write([new ClipboardItem({'image/png':pngOf(blob)})]);}
+  catch{throw Error('그림을 클립보드에 올리지 못했습니다. ‘크게 · 편집’ 에서 복사해 보세요.');}
+  finally{if(held)await api('clip-hold',{on:false}).catch(()=>{});}
+}
+const STAMP_TITLE=/^\d{1,2}\/\d{1,2} \d{2}:\d{2}(:\d{2})?$/;
+async function pasteImages(files){
+  if(secretCovered())throw Error('비밀 메모를 먼저 여세요.');
+  const title=$('note-title').value.trim();
+  // 그림을 처음 붙인 빈 메모는 이름을 ‘이미지’ 로(사용자 요청). 이름을 직접 정했거나 글이 있으면 그대로 둔다.
+  if(!$('note').value.trim()&&(!title||title==='새 메모'||STAMP_TITLE.test(title)))$('note-title').value='이미지';
+  if(unsavedNote||saveTimer||$('note-title').value!==title)await saveNow();
+  const note=currentNoteId;
+  let added=0;
+  for(const file of files){
+    const {thumb,width,height}=await thumbOf(file);
+    const id=crypto.randomUUID();
+    await pasteDB('readwrite',store=>{store.put({blob:file,at:Date.now()},id);});
+    try{await api('note-image-add',{note,shot:{id,name:'붙여넣은 그림 '+stampTitle(new Date(),true)+'.png',thumb,width,height}});added++;}
+    catch(error){await pastedDrop(id).catch(()=>{});if(!added)throw error;notice(error.message);break;}
+  }
+  if(note===currentNoteId)await loadClip();
+  if(added)notice(added>1?`그림 ${added}장을 메모 아래에 넣었습니다.`:'그림을 메모 아래에 넣었습니다.');
+}
+// 메모 쪽에서 붙여 넣은 것만 받는다. 제목 칸 같은 다른 칸은 그대로 두고, 글이 함께 있으면(엑셀 칸 복사처럼) 글을 붙인다.
+document.addEventListener('paste',e=>{
+  if($('notes').hidden||!profileState?.configured||profileState.locked)return;
+  const target=e.target;
+  if(target!==$('note')&&target?.closest?.('input,textarea,select,[contenteditable]'))return;
+  const data=e.clipboardData;
+  if(!data||(data.getData('text/plain')||'').trim())return;
+  const files=[...data.items].filter(item=>item.kind==='file'&&item.type.startsWith('image/')).map(item=>item.getAsFile()).filter(Boolean);
+  if(!files.length)return;
+  e.preventDefault();
+  notice();
+  pasteImages(files).catch(error=>notice(error.message));
 });

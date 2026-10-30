@@ -167,3 +167,9 @@ body.capturing .cap-tile,body.capturing .cap-row,body.capturing #dock-cap-area,b
 .mark-pin p{margin:6px 0 10px;font-size:0.8571rem;color:#41544b;word-break:break-all}.mark-pin input{width:100%}.mark-pin-error{color:#a2442e!important;min-height:1.2em}
 .bookmark a.secure{cursor:pointer}.bookmark a.secure strong:before{content:'🔒 ';font-size:.85em}
 .note-tab[draggable=true]{cursor:grab}.note-tab.dragging{opacity:.45}.note-tab.drop-before{box-shadow:-3px 0 0 #2f6b4f}
+.clip-why{margin:-4px 0 10px;padding:8px 11px;border-radius:9px;background:#fce8dc;color:#873c2e;font-size:0.7857rem;line-height:1.6}
+.secret-row{display:flex;align-items:center;margin:0 0 8px;padding:0 2px}.secret-row .switch{font-size:0.8214rem}
+.secret-cover{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:30px 16px;border:1px dashed #cfd6c3;border-radius:12px;background:#f4f6ee;min-height:150px;justify-content:center}.secret-cover p{margin:0 0 6px;font-size:0.8214rem;color:#5d6b5f}
+.note-tab.secret:before{content:'🔒 ';font-size:.85em}
+#note-images{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.shot{display:block;margin:0;padding:0;border:1px solid var(--line);border-radius:11px;background:white;overflow:hidden}.shot img{display:block;width:100%;height:auto;max-height:260px;object-fit:contain;border:0;border-radius:0;background:#f4f6ee}.shot img.missing{min-height:60px}.shot figcaption{display:flex;align-items:center;gap:6px;padding:7px 9px;border-top:1px solid var(--line)}.shot .shot-meta{flex:1;min-width:0}.shot button{flex:none;padding:6px 9px;font-size:0.7857rem}

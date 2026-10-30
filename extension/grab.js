@@ -7,6 +7,9 @@ const $ = id => document.getElementById(id);
 const want = new URLSearchParams(location.hash.slice(1));
 const mode = want.get('mode') || 'visible';
 $('go').textContent = mode === 'area' ? '화면 고르기 → 편집기에서 자르기' : '화면 고르기';
+// 발표 도우미로 화면 전체에서 고르지 못한 까닭(도우미가 없거나 옛 버전). 글은 textContent 로만 넣는다.
+if (want.get('why')) { $('why').textContent = want.get('why'); $('why').hidden = false; }
+$('win').hidden = !/Windows/i.test(navigator.userAgent);
 $('cancel').addEventListener('click', () => window.close());
 $('go').addEventListener('click', async () => {
   $('go').disabled = true; $('say').textContent = '';

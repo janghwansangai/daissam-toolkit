@@ -274,7 +274,16 @@ await sleep(1500);
 await send(panel, 'unlock', {pin: PIN}).catch(() => {});
 await killWorker(); await sleep(500);
 await send(panel, 'note-flush').catch(() => {}); await sleep(500); await send(panel, 'note-flush').catch(() => {});
-const {pendingNotes, sync} = await checkNotes('끝');
+let {pendingNotes, sync} = await checkNotes('끝');
+// Chrome 동기화의 분당 쓰기 한도(120번)에 걸려 지움 표시가 아직 대기 중일 수 있다(1분마다 다시 올린다 — 설계).
+// 그때는 한도가 풀린 뒤 실제로 올라가는지까지 본다. 대기에도 없는데 살아 있으면 그대로 위반이다.
+const stillLive = () => [...notes].filter(([id, n]) => n.deleted && !n.uncertain && sync[`note_${device}_${id}`] && !sync[`note_${device}_${id}`].deleted);
+if (stillLive().some(([id]) => pendingNotes[id]?.deleted)) {
+  note('◆ 지움 표시가 쓰기 한도로 대기 중 — 65초 뒤 다시 올려 확인');
+  await sleep(65000);
+  await send(panel, 'note-flush').catch(() => {}); await sleep(1500);
+  ({pendingNotes, sync} = await checkNotes('끝(쓰기 한도 뒤)'));
+}
 const live = [...notes.entries()].filter(([, n]) => !n.deleted && !n.uncertain);
 let synced = 0, localOnly = 0;
 for (const [id, n] of live) {

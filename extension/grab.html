@@ -4,10 +4,12 @@ body{margin:0;font:14px/1.6 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Ne
 main{padding:20px 22px}h1{font-size:17px;margin:0 0 8px}p{margin:0 0 12px;color:#4d5f57}
 button{font:inherit;border:0;border-radius:12px;padding:12px 16px;cursor:pointer}
 #go{width:100%;background:#173b36;color:#f6f9e9;font-weight:700;font-size:15px}#go:disabled{opacity:.6}
-#cancel{width:100%;margin-top:8px;background:#e7ecdf;color:#173b36}#say{min-height:22px;font-size:13px;color:#8a4b2d}
+#cancel{width:100%;margin-top:8px;background:#e7ecdf;color:#173b36}.why{font-size:12.5px;background:#fce8dc;color:#873c2e;border-radius:9px;padding:8px 10px}#say{min-height:22px;font-size:13px;color:#8a4b2d}
 </style></head><body><main>
-<h1>이 화면은 바로 찍을 수 없어요</h1>
+<h1>이 화면은 ‘화면 고르기’로 찍어요</h1>
 <p>주소 없는 창 · 새 탭 · Chrome 설정 같은 화면은 Chrome 이 확장에게 바로 찍게 두지 않습니다. 아래 단추를 누르고, 뜨는 창에서 <b>찍을 탭이나 창 · 전체 화면</b>을 고르세요. 고른 화면을 그대로 찍습니다.</p>
+<p id="why" class="why" hidden></p>
+<p id="win" hidden>윈도우라면 <b>윈도우 키 + Shift + S</b> 로 어떤 화면이든 찍은 뒤, 빠른 메모 칸에 <b>Ctrl + V</b> 로 붙여 넣어도 됩니다.</p>
 <button id="go" type="button">화면 고르기</button>
 <button id="cancel" type="button">그만두기</button>
 <p id="say"></p>

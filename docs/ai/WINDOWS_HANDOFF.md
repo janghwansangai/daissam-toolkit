@@ -312,3 +312,26 @@ v0.40.2 요청 두 가지(스토어 판 ID `penkl…` · 켜질 때 등록 맞�
 ## v0.41.1 — PR #7 합침
 
 v0.41.0 요청(자동 백업 명령 다섯 가지) **처리됨.** 검토 결함 없음. `\z` 지적이 맞았다 — 맥 NSRegularExpression 의 `$` 도 끝 줄바꿈 앞에서 맞아, 이름 끝에 줄바꿈이 붙은 것을 받고 있었다. 맥도 `\z` 로 고쳤고 `host-backup` 시험에 그 이름을 더했다(옛 맥 도우미는 실패). 새 요청 없음.
+
+## v0.43.0 — 요청: 윈도우 사용자 보고 셋 실기기 확인(자동 가져오기 ‘연결 안 됨’ · Chrome 설정 캡처 · 메모에 캡처)
+
+사용자 보고(2026-10-30, 윈도우 노트북 — **맥에서는 셋 다 된다**): ① 메모의 ‘복사·캡처 자동 가져오기’ 를 켜면 계속 ‘연결 안 됨’ ② Chrome 설정 화면을 캡처하면 ‘찍을 수 없다’ 고 나온다(작은 창 `grab.html` 의 옛 제목 “이 화면은 바로 찍을 수 없어요”) — 바람: **Win+Shift+S 처럼 어떤 화면이든** ③ 빠른 메모에 캡처를 넣을 수 없다.
+
+**맥 세션 판단:** 셋 다 **확장 ↔ 윈도우 도우미 연결 실패** 하나로 설명된다. ① clipPort(connectNative)가 끊김 ② 선택 영역은 도우미 `snip-save` 가 먼저인데 실패해서 `grab.html` 로 넘어감 ③ 자동 가져오기는 도우미 일. `Presenter.cs` NativeHost(start · stop · Poll · SendImage · Allowed · ShotsPath)를 읽어 봤지만 결함은 못 찾았다. 그럴듯한 순서: (a) 그 노트북 도우미가 v0.40.3 이전 — 게시된 스토어 판 ID(`penkl…`)를 allowed_origins 에 모름 → Chrome “…host is forbidden.” (b) 레지스트리가 가리키는 `native-host.json` 의 path 가 없거나 옛 exe → “…not found.” / “Native host has exited.” (c) 위가 아니면 NativeHost 의 실제 결함.
+
+**v0.43.0 확장이 바꾼 것(맥 세션, 계약 그대로):**
+- 끊긴 **까닭을 토글 바로 아래 빨간 줄**에 Chrome 원문과 함께 적는다(`clipWhy`). 켜진 채 도우미가 `kind:"error"` 를 보내면 ‘오류’, 끊겨 꺼졌으면 ‘연결 안 됨’.
+- 발표 명령 실패에도 까닭을 붙인다(`appError` — forbidden 이면 ‘옛 버전 → 새 앱’ 안내 `APP_OLD`).
+- 선택 영역을 도우미로 못 고르면 `grab.html` 창에 그 까닭(`#why`)을, 윈도우면 ‘Win+Shift+S 로 찍고 메모에 Ctrl+V’ 를 보인다.
+- **메모에 그림 붙여넣기(Ctrl+V)** — 도우미 없이 된다. ③ 은 이것으로 도우미가 없어도 풀린다.
+- 자동 가져오기 그림은 ‘이미지’ 메모 하나에 쌓인다(도우미가 보내는 `kind:"image"` 그대로).
+- 사이드바가 클립보드에 그림을 올리는 동안 자동 가져오기를 잠깐 멈춘다: clipPort 로 `{type:"stop"}` → 250ms → 클립보드 쓰기 → `{type:"start"}`. **`start` 는 그 순간의 클립보드 순번을 기준으로 다시 잡아야 한다**(지금 윈도우 코드가 그렇다 — 바꾸지 말 것. 바꾸면 방금 올린 그림을 새 캡처로 다시 가져간다).
+
+**윈도우 세션에 부탁(실기기, 확장 v0.43.0):**
+1. 자동 가져오기 토글을 켜고 **빨간 줄의 글을 그대로** 적는다. `Check.cmd` 결과 · 레지스트리 값 · `native-host.json` 의 path 와 allowed_origins · 깔린 `Presenter.exe` 버전도.
+2. (a)/(b)면 새 exe 를 `Install.cmd` 로 깔아 풀리는지 확인. (c)면 `Presenter.cs` 를 고친다.
+3. `chrome://settings` 탭에서 캡처 탭 ‘선택 영역’ 과 도크 ‘선택 영역’ → 도우미 오버레이가 Chrome 설정 위에도 뜨고 ‘캡처이미지’ 저장 · 복사가 되는지. 안 되면 원인과 수정(도우미 오버레이는 CopyFromScreen 이라 Win+Shift+S 처럼 무엇이든 찍힐 것이다).
+4. Win+Shift+S → 사이드바 메모 칸 Ctrl+V → 그림이 아래로 쌓이는지(도우미 없이). 자동 가져오기를 켠 채면 같은 그림이 ‘이미지’ 메모에도 들어가는 것은 의도다.
+5. 9장 형식으로 PR 에 남긴다. `Presenter.cs` 를 고쳤으면 버전은 맥 세션이 올린다.
+- 선택(판단은 윈도우 세션): 도우미 오버레이가 어떤 까닭으로 실패하면 `ms-screenclip:` 로 윈도우 캡처 도구를 띄우는 대체 길.
+- 윈도우에서 돌릴 수 있는 시험: `node tests/e2e/features043.e2e.mjs`(Chrome for Testing, 도우미 없이 34건), `npm test`.

@@ -1,5 +1,5 @@
 import {seal,unseal,assertPin} from './lib/crypto.js';
-import {validateNote,checkQuota,noteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES,cleanOrder,fitZoom} from './lib/data.js';
+import {validateNote,checkQuota,noteKey,parseNoteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES,cleanOrder,fitZoom} from './lib/data.js';
 import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,collectBackup,plainBackup,openBackup,IMAGES_PER_NOTE,IMAGES_TOTAL} from './lib/backup.js';
 import {backupName,sortBackups,pruneList,fingerprint,worthKeeping,deviceTag,READ_CHUNK,CHANGE_GAP_MINUTES} from './lib/autobackup.js';
 import {captureAndDeliver,targetTab,pickTabArea,TAB_BLOCKED} from './capture-core.js';
@@ -16,6 +16,14 @@ const LOCK_WHY={
   button:'잠금 단추를 눌러 잠겼습니다'
 };
 const APP_MISSING='발표 도우미 앱이 필요합니다. [발표] 탭 → ‘발표 프로그램 다운로드’에서 앱을 받아 설치한 뒤 Chrome 을 다시 켜 주세요.';
+// 앱은 깔려 있는데 그 앱이 이 확장 ID 를 모를 때(Chrome: “…is forbidden”). 예전에는 ‘앱이 필요합니다’ 로만 보여
+// 깔려 있는 사람은 무엇을 해야 할지 몰랐다. 사이드바는 앞머리(‘발표 도우미 앱이 필요합니다’)로 안내를 띄운다.
+const APP_OLD='발표 도우미 앱이 필요합니다 — 설치된 앱이 옛 버전이라 이 확장(웹 스토어 판)과 연결되지 않습니다. [발표] 탭 → ‘발표 프로그램 다운로드’에서 새 앱을 받아 설치하고, 앱을 한 번 연 뒤 Chrome 을 다시 켜 주세요.';
+function appError(error) {
+  const reason=String(error?.message||error||'');
+  if(/forbidden/i.test(reason))return Error(APP_OLD+` (${reason})`);
+  return Error(APP_MISSING+(reason&&!/not found/i.test(reason)?` (${reason})`:''));
+}
 // 사용자가 연 유튜브 뮤직 탭에서 실행된다. 페이지가 이미 보여 주는 버튼을 누르고 곡 제목을 읽는다.
 function controlMusic(action,text){
   const click=selector=>{const button=document.querySelector(selector);if(button){button.click();return true;}return false;};
@@ -107,6 +115,13 @@ async function lock(why='button') {
 }
 // 지금 프로필의 PIN 이 맞는지 본다. 틀리면 횟수를 세고, 다섯 번 틀리면 30초 쉬게 한다.
 // 잠금 해제와 ‘백업으로 잠금 PIN 바꾸기’가 같은 횟수를 나눠 쓴다 — 어느 쪽으로든 PIN 을 알아내려는 시도를 막는다.
+// 게스트(PIN 없음)가 보안 북마크 · 비밀 메모를 쓰려고 PIN 을 만든다. 그 PIN 이 확장 PIN 이 된다. 게스트 때처럼
+// 잠기지는 않게 시작 잠금 · 자리 비움 잠금은 꺼 둔다(사용자가 설정에서 켤 수 있다).
+async function makePin(p,pin) {
+  assertPin(pin);
+  await chrome.storage.local.set({profile:{...p,proof:await seal(pin,{kind:'profile'}),idleMinutes:0},startLocked:false,lockOnAway:false});
+  await allow(true);
+}
 async function checkPin(pin) {
   if(!(await profile())?.proof)throw new Error('PIN 이 없는 게스트 프로필입니다.');
   const {attempts={count:0,until:0}}=await chrome.storage.local.get('attempts');
@@ -177,14 +192,27 @@ async function migrateNotes() {
     await chrome.storage.sync.remove(legacyKey);
   } catch(error) { await chrome.storage.local.set({noteSyncError:error.message}); }
 }
-async function storeNote(rawId,rawTitle,text,pinned,tag) {
+// 이 메모의 가장 새 사본(이 기기 · 다른 기기 모두). 고정 · 비밀 표시는 여기서 이어받는다 — 예전에는 이 기기의
+// 옛 사본만 보아, 다른 컴퓨터에서 켠 표시가 이 컴퓨터에서 글을 고치는 순간 사라질 수 있었다.
+async function newestNote(id,local) {
+  const all=await chrome.storage.sync.get(null);
+  let best=null;
+  const newer=value=>value&&typeof value==='object'&&(!best||(Number(value.time)||0)>(Number(best.time)||0));
+  for(const [key,value] of Object.entries(all))if(parseNoteKey(key)?.id===id&&newer(value))best=value;
+  for(const value of [local.pendingNotes?.[id],local.draftNotes?.[id]])if(newer(value))best=value;
+  return best;
+}
+async function storeNote(rawId,rawTitle,text,pinned,tag,secret) {
   if(typeof text!=='string' || text.length>200000)throw Error('메모가 너무 큽니다. 텍스트 파일로 내보내세요.');
   const id=validateNoteId(rawId);const title=validateTitle(rawTitle);
   const {device,draftNotes={},pendingNotes={}}=await chrome.storage.local.get(['device','draftNotes','pendingNotes']);
   const known=pendingNotes[id]||draftNotes[id];
-  const created=Number(known?.created)||Date.now();
-  const keep=pinned===undefined?known?.pinned===true:!!pinned;
-  const value={v:2,id,title,text,time:Date.now(),created,pinned:keep,revision:crypto.randomUUID(),device};
+  const newest=await newestNote(id,{draftNotes,pendingNotes});
+  const created=Number(known?.created)||Number(newest?.created)||Date.now();
+  const keep=pinned===undefined?newest?.pinned===true:!!pinned;
+  // 비밀 메모(v0.43.0): 열 때 PIN 을 묻는 표시. 꺼져 있으면 칸을 두지 않는다(예전 값과 같은 모양).
+  const hide=secret===undefined?newest?.secret===true:!!secret;
+  const value={v:2,id,title,text,time:Date.now(),created,pinned:keep,...(hide?{secret:true}:{}),revision:crypto.randomUUID(),device};
   await chrome.storage.local.set({draftNotes:{...draftNotes,[id]:value}});
   try {validateNote(text);}
   catch(error){const next={...pendingNotes};delete next[id];await chrome.storage.local.set({pendingNotes:next,noteSyncError:error.message});throw error;}
@@ -244,7 +272,7 @@ async function restoreBackup(m) {
     const now=Date.now(),drafts={...(local.draftNotes||{})},pending={...(local.pendingNotes||{})};
     let localOnly=0;
     for(const note of plan.add){
-      const value={v:2,id:note.id,title:note.title,text:note.text,time:note.time||now,created:note.created||note.time||now,pinned:note.pinned,revision:crypto.randomUUID(),device:local.device};
+      const value={v:2,id:note.id,title:note.title,text:note.text,time:note.time||now,created:note.created||note.time||now,pinned:note.pinned,...(note.secret?{secret:true}:{}),revision:crypto.randomUUID(),device:local.device};
       drafts[note.id]=value;
       // 5,500바이트를 넘는 글은 동기화되지 않고 이 컴퓨터에만 남는다(사이드바에서 쓸 때와 같다).
       if(new TextEncoder().encode(note.text).length<=NOTE_BYTES)pending[note.id]=value; else localOnly++;
@@ -295,17 +323,53 @@ async function clipConnect() {
   port.onDisconnect.addListener(()=>{
     const reason=chrome.runtime.lastError?.message||'';
     if(clipPort===port)clipPort=null;
-    chrome.storage.local.set({clipboardImport:false,clipError:'도우미 연결이 끊어졌습니다. '+reason});
+    chrome.storage.local.set({clipboardImport:false,clipError:clipWhy(reason)});
   });
   port.onMessage.addListener(message=>exclusive(()=>clipReceive(message)));
   port.postMessage({type:'start'});
+}
+// 연결이 끊어진 까닭을 할 일로 바꿔 적는다. 예전에는 ‘연결 안 됨’ 만 보여 무엇을 해야 할지 몰랐다(사용자 보고, 윈도우).
+// Chrome 이 주는 원래 글은 괄호에 남긴다 — 다른 컴퓨터의 문제를 글만 보고 가릴 수 있게.
+function clipWhy(reason) {
+  const raw=reason?` (${reason})`:'';
+  if(/not found/i.test(reason))return '이 컴퓨터에 발표 도우미 앱이 없거나 등록되지 않았습니다. 발표 탭 → 발표 프로그램 다운로드에서 설치하고, 앱을 한 번 연 뒤 Chrome 을 다시 켜 주세요.'+raw;
+  if(/forbidden/i.test(reason))return '설치된 발표 도우미 앱이 이 확장(웹 스토어 판)을 아직 모릅니다. 새 발표 도우미 앱을 설치해 한 번 열고 Chrome 을 다시 켜 주세요.'+raw;
+  if(/exited|communicating/i.test(reason))return '발표 도우미 앱이 연결하자마자 꺼졌습니다. 새 발표 도우미 앱을 설치해 주세요.'+raw;
+  return '도우미 연결이 끊어졌습니다.'+raw;
+}
+// 메모에 그림 한 장을 더한다. 목록은 새것이 앞(사이드바는 오래된 것부터 아래로 쌓아 보인다). 썸네일은 이 컴퓨터의
+// 확장 저장소에 두므로 메모마다 · 전체 한도를 지키고, 넘으면 가장 오래된 것부터 목록에서 뺀다.
+async function addNoteImage(id,shot) {
+  const {noteImages={}}=await chrome.storage.local.get('noteImages');
+  const next={...noteImages,[id]:[shot,...(noteImages[id]||[])].slice(0,IMAGES_PER_NOTE)};
+  let total=Object.values(next).reduce((sum,list)=>sum+list.length,0);
+  while(total>IMAGES_TOTAL){
+    let oldestNote=null,oldestTime=Infinity;
+    for(const [note,list] of Object.entries(next)){const last=list[list.length-1];if(last&&last.time<oldestTime){oldestTime=last.time;oldestNote=note;}}
+    if(!oldestNote)break;
+    next[oldestNote]=next[oldestNote].slice(0,-1);total--;
+  }
+  await chrome.storage.local.set({noteImages:next});
+}
+// 자동으로 가져온 그림은 ‘이미지’ 메모 하나에 모은다(v0.43.0, 사용자 요청 — 예전에는 그림마다 새 메모가 생겼다).
+// 그 메모를 지웠거나 그림이 가득 찼으면 새 ‘이미지’ 메모를 만든다.
+async function imageNote() {
+  const local=await chrome.storage.local.get(['imageNoteId','noteImages','draftNotes','pendingNotes']);
+  const id=local.imageNoteId;
+  if(id){
+    const known=await newestNote(id,local);
+    if(known&&!known.deleted&&((local.noteImages||{})[id]||[]).length<IMAGES_PER_NOTE)return id;
+  }
+  const fresh=crypto.randomUUID();
+  await storeNote(fresh,'이미지','');
+  await chrome.storage.local.set({imageNoteId:fresh});
+  return fresh;
 }
 async function clipReceive(message) {
   if(!message||typeof message!=='object')return;
   if(message.kind==='error'){await chrome.storage.local.set({clipError:String(message.message||'')});return;}
   if(['ready','state','copied'].includes(message.kind)){await chrome.storage.local.set({clipError:''});return;}
   if((await state()).locked){await clipDisconnect();return;}
-  const {noteImages={}}=await chrome.storage.local.get('noteImages');
   if(message.kind==='text'){
     const text=String(message.text||'');
     if(!text)return;
@@ -318,20 +382,12 @@ async function clipReceive(message) {
   }
   if(message.kind==='image'){
     if(typeof message.file!=='string'||typeof message.thumb!=='string')return;
-    const id=crypto.randomUUID();
-    await storeNote(id,autoTitle(),'');
+    const id=await imageNote();
     const shot={id:crypto.randomUUID(),file:message.file,name:String(message.name||'캡처.png'),
       thumb:message.thumb,width:Number(message.width)||0,height:Number(message.height)||0,time:Date.now()};
-    const next={...noteImages,[id]:[shot,...(noteImages[id]||[])].slice(0,IMAGES_PER_NOTE)};
-    // Thumbnails live in local storage, so keep a hard ceiling across every note.
-    let total=Object.values(next).reduce((sum,list)=>sum+list.length,0);
-    while(total>IMAGES_TOTAL){
-      let oldestNote=null,oldestTime=Infinity;
-      for(const [note,list] of Object.entries(next)){const last=list[list.length-1];if(last&&last.time<oldestTime){oldestTime=last.time;oldestNote=note;}}
-      if(!oldestNote)break;
-      next[oldestNote]=next[oldestNote].slice(0,-1);total--;
-    }
-    await chrome.storage.local.set({noteImages:next,clipError:'',lastImportId:id});
+    await addNoteImage(id,shot);
+    // 같은 메모에 잇달아 들어와도 사이드바가 그 메모를 보이게 시각을 함께 남긴다(값이 같으면 변화 알림이 오지 않는다).
+    await chrome.storage.local.set({clipError:'',lastImportId:id,lastImportAt:Date.now()});
   }
 }
 // 서비스 워커에는 오디오가 없다. 숨은 문서를 잠깐 띄워 소리를 낸다.
@@ -665,14 +721,17 @@ async function runCapture(mode,{after,notify,widen}={}){
 // (다른 앱 · 다른 모니터도 된다). ② 그 밖에는 작은 창을 띄워 '화면 고르기'(Chrome 의 화면 공유 고르기)로 찍는다
 // — 그 고르기는 어떤 탭 · 창 · 화면이든 담을 수 있다. 누른 손길이 있어야 열리므로 그 창의 단추로 연다.
 async function blockedCapture(mode,after){
+  let why='';
   if(mode==='area'){
     try{
       const reply=await presenterSay({type:'presenter',action:'snip-save'});
       if(reply?.ok!==false)return '이 화면은 Chrome 이 확장에게 바로 찍게 두지 않아 발표 도우미로 고릅니다 — 끌어 고르면 ‘캡처이미지’ 폴더에 저장하고 복사합니다.';
-    }catch{}
+      why=String(reply?.message||'');
+    }catch(error){why=appError(error).message;}
   }
-  const hash=new URLSearchParams({mode,after:after||''}).toString();
-  await chrome.windows.create({url:chrome.runtime.getURL('grab.html')+'#'+hash,type:'popup',width:440,height:360,focused:true});
+  // 도우미로 못 고른 까닭을 작은 창에 함께 보인다(사용자 보고: 윈도우에서 Chrome 설정을 ‘찍을 수 없다’ 고만 나왔다).
+  const hash=new URLSearchParams({mode,after:after||'',why:why.slice(0,400)}).toString();
+  await chrome.windows.create({url:chrome.runtime.getURL('grab.html')+'#'+hash,type:'popup',width:440,height:470,focused:true});
   return '이 화면은 Chrome 이 확장에게 바로 찍게 두지 않습니다. 열린 작은 창에서 ‘화면 고르기’ 를 누르고 찍을 탭이나 화면을 고르세요.';
 }
 async function quickCapture(mode){ return runCapture(mode,{notify:true,widen:true}); }
@@ -687,10 +746,11 @@ function cmdConnect(){
   try{ port=chrome.runtime.connectNative(HOST); }catch{ return null; }
   port.onMessage.addListener(message=>{ const waiter=cmdWaiting.shift(); if(waiter)waiter.ok(message); });
   port.onDisconnect.addListener(()=>{
-    void chrome.runtime.lastError;   // 읽지 않으면 도우미가 없을 때마다 ‘Unchecked runtime.lastError’ 가 확장 오류 목록에 쌓인다
+    // 읽지 않으면 도우미가 없을 때마다 ‘Unchecked runtime.lastError’ 가 확장 오류 목록에 쌓인다. 까닭은 안내에 쓴다(appError).
+    const reason=chrome.runtime.lastError?.message||'';
     if(cmdPort===port)cmdPort=null;
     const waiting=cmdWaiting; cmdWaiting=[];
-    for(const one of waiting)one.no(new Error('발표 도우미와의 연결이 끊어졌습니다.'));
+    for(const one of waiting)one.no(new Error(reason||'발표 도우미와의 연결이 끊어졌습니다.'));
   });
   cmdPort=port;
   return port;
@@ -870,16 +930,12 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     // 보안 북마크(v0.42.0): 켜면 북마크를 열 때 이 확장의 PIN 을 묻는다. 게스트(PIN 없음)는 켜면서 PIN 을 만든다 —
     // 그 PIN 이 확장 PIN 이 된다. 게스트 때처럼 잠기지는 않게 시작 잠금 · 자리 비움 잠금은 꺼 둔다(사용자가 나중에 켤 수 있다).
     // 끄려면 PIN 이 필요하다(옆 사람이 끄고 열지 못하게).
-    if(['secure-marks','pin-check','order-set','sync-status'].includes(m.type)&&(await state()).locked)throw Error('먼저 프로필 잠금을 해제하세요.');
+    if(['secure-marks','pin-check','pin-make','note-secret','note-image-add','order-set','sync-status'].includes(m.type)&&(await state()).locked)throw Error('먼저 프로필 잠금을 해제하세요.');
     if(m.type==='secure-marks'){
       const p=await profile();
       if(!p)throw Error('프로필이 없습니다.');
       if(m.on){
-        if(!p.proof){
-          assertPin(m.newPin);
-          await chrome.storage.local.set({profile:{...p,proof:await seal(m.newPin,{kind:'profile'}),idleMinutes:0},startLocked:false,lockOnAway:false});
-          await allow(true);
-        }
+        if(!p.proof)await makePin(p,m.newPin);
         await chrome.storage.local.set({secureMarks:true});
       }else{
         if(p.proof)await checkPin(m.pin);
@@ -889,6 +945,27 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     }
     // 보안 북마크를 열 때의 PIN 확인. 잠금 해제와 같은 틀린 횟수 제한을 쓴다(다섯 번 틀리면 30초).
     if(m.type==='pin-check'){await checkPin(m.pin);return true;}
+    // 게스트가 비밀 메모를 열거나 만들려고 PIN 을 만든다. 이미 PIN 이 있으면 바꾸지 않는다(바꾸기는 설정의 pin-set).
+    if(m.type==='pin-make'){
+      const p=await profile();
+      if(!p)throw Error('프로필이 없습니다.');
+      if(p.proof)throw Error('이미 PIN 이 있습니다.');
+      await makePin(p,m.pin);
+      return enforce();
+    }
+    // 비밀 메모 켜기 · 끄기(v0.43.0). 켜려면 PIN 이 있어야 하고(게스트는 먼저 pin-make), 끄려면 PIN 이 필요하다.
+    // 글은 암호화하지 않는다 — 여는 것을 막는 표시다(보안 북마크와 같다).
+    if(m.type==='note-secret'){
+      const id=validateNoteId(m.id);
+      const p=await profile();
+      if(!p)throw Error('프로필이 없습니다.');
+      const known=await newestNote(id,await chrome.storage.local.get(['draftNotes','pendingNotes']));
+      if(!known||known.deleted||typeof known.text!=='string')throw Error('먼저 메모에 내용을 적어 주세요.');
+      // 켜든 끄든 이 컴퓨터에 PIN 이 있어야 한다(게스트는 사이드바가 먼저 pin-make). 끌 때는 그 PIN 을 확인한다.
+      if(!p.proof)throw Error('먼저 PIN 을 만들어 주세요.');
+      if(!m.on)await checkPin(m.pin);
+      return storeNote(id,known.title,known.text,undefined,undefined,!!m.on);
+    }
     // 끌어서 정한 순서(메모 탭 · 북마크 폴더) — 동기화되어 다른 컴퓨터에서도 같은 순서.
     if(m.type==='order-set'){
       const key={notes:'noteOrder',folders:'folderOrder'}[m.kind];
@@ -912,7 +989,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       for(const key of ['action','dim','blur','ring','ringSize','keys'])if(m[key]!==undefined)payload[key]=String(m[key]);
       let reply;
       try { reply=await presenterSay(payload); }
-      catch { throw Error(APP_MISSING); }
+      catch(error) { throw appError(error); }
       // 도우미가 앱에 명령을 넘기지 못한 경우. 예전에는 이 답을 그냥 흘려보내 사이드바가
       // 아무 말도 하지 않았고, 사용자는 버튼이 죽은 것으로만 보였다.
       if(reply&&reply.ok===false)throw Error(String(reply.message||'발표 도우미 앱에 명령을 전달하지 못했습니다.'));
@@ -1003,10 +1080,9 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     if(m.type==='note-save')return storeNote(m.id,m.title,m.text,undefined,m.tag);
     if(m.type==='note-pin'){
       const id=validateNoteId(m.id);
-      const {device,pendingNotes={},draftNotes={}}=await chrome.storage.local.get(['device','pendingNotes','draftNotes']);
-      const key=noteKey(device,id);
-      const known=pendingNotes[id]||draftNotes[id]||(await chrome.storage.sync.get(key))[key];
-      if(!known)throw Error('먼저 메모에 내용을 적어 주세요.');
+      // 가장 새 사본의 글로 고정한다. 예전에는 이 기기의 옛 사본을 써서, 다른 컴퓨터에서 고친 글이 고정하는 순간 옛 글로 돌아갈 수 있었다.
+      const known=await newestNote(id,await chrome.storage.local.get(['pendingNotes','draftNotes']));
+      if(!known||known.deleted||typeof known.text!=='string')throw Error('먼저 메모에 내용을 적어 주세요.');
       return storeNote(id,known.title,known.text,!!m.pinned);
     }
     if(m.type==='tool-timer'){
@@ -1054,9 +1130,34 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       return clipStatus();
     }
     if(m.type==='clip-copy'){
-      if(!clipPort)throw Error('도우미가 연결되어 있지 않습니다. 자동 가져오기를 켜 주세요.');
-      clipPort.postMessage({type:'copy-file',file:String(m.file||'')});
+      const file=String(m.file||'');
+      // 자동 가져오기가 켜져 있으면 그 통로로 — 도우미가 제가 올린 것을 다시 가져가지 않는다.
+      if(clipPort){clipPort.postMessage({type:'copy-file',file});return true;}
+      let reply=null;
+      try{reply=await chrome.runtime.sendNativeMessage(HOST,{type:'copy-file',file});}catch{}
+      if(reply?.kind==='copied')return true;
+      throw Error(reply?.message||'이 그림의 원본 복사는 발표 도우미 앱이 합니다. 앱을 설치해 주세요.');
+    }
+    // 사이드바가 클립보드에 그림을 올리는 동안 자동 가져오기를 잠깐 멈춘다. 다시 켜면(start) 도우미는 그때의
+    // 클립보드를 기준으로 삼으므로, 방금 올린 그림을 새 캡처로 가져가지 않는다.
+    if(m.type==='clip-hold'){
+      if(!clipPort)return false;
+      if(m.on){clipPort.postMessage({type:'stop'});await new Promise(r=>setTimeout(r,250));}
+      else clipPort.postMessage({type:'start'});
       return true;
+    }
+    // 사이드바에서 붙여 넣은 그림(v0.43.0). 원본은 사이드바가 이 컴퓨터의 확장 저장소(IndexedDB)에 두고, 여기에는 목록과 작은 미리보기만 둔다.
+    if(m.type==='note-image-add'){
+      const note=validateNoteId(m.note);
+      const s=m.shot||{};
+      if(typeof s.thumb!=='string'||!s.thumb||s.thumb.length>250000||!/^[A-Za-z0-9+/]*={0,2}$/.test(s.thumb))throw Error('그림을 읽지 못했습니다.');
+      const {noteImages={}}=await chrome.storage.local.get('noteImages');
+      if((noteImages[note]||[]).length>=IMAGES_PER_NOTE)throw Error(`한 메모에는 그림을 ${IMAGES_PER_NOTE}장까지 넣을 수 있습니다. 새 메모를 만들어 붙여 넣으세요.`);
+      const size=v=>Math.max(0,Math.min(20000,Math.floor(Number(v)||0)));
+      const shot={id:/^[A-Za-z0-9-]{1,64}$/.test(String(s.id))?String(s.id):crypto.randomUUID(),file:'',name:String(s.name||'붙여넣은 그림.png').slice(0,200),
+        thumb:s.thumb,width:size(s.width),height:size(s.height),time:Date.now()};
+      await addNoteImage(note,shot);
+      return {id:shot.id};
     }
     if(m.type==='clip-remove'){
       const note=validateNoteId(m.note);
@@ -1079,7 +1180,10 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       const drafts={...draftNotes};delete drafts[id];
       // Keep a tombstone so the other devices drop the note instead of syncing it back.
       const value={v:2,id,title:'',text:'',time:Date.now(),revision:crypto.randomUUID(),device,deleted:true};
-      await chrome.storage.local.set({draftNotes:drafts,pendingNotes:{...pendingNotes,[id]:value}});
+      // 그 메모의 그림 목록도 뺀다(예전에는 남아서 전체 40장 한도를 차지했다). 바탕화면의 파일은 지우지 않는다.
+      const {noteImages={}}=await chrome.storage.local.get('noteImages');
+      const images={...noteImages};delete images[id];
+      await chrome.storage.local.set({draftNotes:drafts,pendingNotes:{...pendingNotes,[id]:value},noteImages:images});
       await flushNotes();
       return true;
     }
