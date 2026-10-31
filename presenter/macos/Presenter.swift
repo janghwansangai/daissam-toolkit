@@ -443,7 +443,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         } else { status.button?.title="다있쌤 ↗" }
         status.button?.toolTip="다있쌤 · 발표 도우미"
         let menu=NSMenu()
-        for (title,selector) in [("발표 시작",#selector(startAction)),("발표 종료 · 커서 복원",#selector(stopAction)),("집중 모드 켜기 · 끄기",#selector(toggleFocus)),("사용 방법",#selector(help)),("앱 종료",#selector(quit))] {
+        for (title,selector) in [("발표 시작",#selector(startAction)),("발표 종료 · 커서 복원",#selector(stopAction)),("집중 모드 켜기 · 끄기",#selector(toggleFocus)),("사용 방법",#selector(help)),("오류 신고…",#selector(reportBug)),("앱 종료",#selector(quit))] {
             let item=NSMenuItem(title:title,action:selector,keyEquivalent:"");item.target=self;menu.addItem(item)
         }
         let blurMenu=NSMenu()
@@ -493,6 +493,14 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         let titles=[("snip","영역을 끌어 잘라 화면에 붙이기"),("clip","클립보드의 그림·글을 붙이기"),
                     ("clear","핀 모두 닫기"),("unlock","클릭 통과 모두 해제")]
         return titles.map{ (combos[$0.0]?.label ?? "?")+": "+$0.1 }.joined(separator:"\n")
+    }
+    // 오류 신고(v0.44.0): 기본 브라우저로 신고 페이지를 연다. 앱은 아무것도 보내지 않는다 — 주소에는 프로그램 ID ·
+    // 버전 · 어디서 눌렀는지만 싣고, 내용은 사람이 그 페이지에서 직접 적어 보낸다. 비밀 키는 필요 없다.
+    @objc func reportBug(){
+        var parts=URLComponents(string:"https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWSVU5qE5_gUh3bNUskBhHDlXH6FskvA/exec")!
+        let build=Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? ""
+        parts.queryItems=[URLQueryItem(name:"app",value:"daissam-toolkit"),URLQueryItem(name:"v",value:build),URLQueryItem(name:"where",value:"맥 발표 도우미 · 메뉴 막대")]
+        if let url=parts.url { NSWorkspace.shared.open(url) }
     }
     @objc func help(){
         let a=NSAlert();let build=Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "?"

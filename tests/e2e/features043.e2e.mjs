@@ -33,8 +33,14 @@ const savedSecret = id => p.eval(`Promise.all([chrome.storage.local.get(['pendin
 await send('note-save', {id: 's1', title: '통장 메모', text: '비밀 내용 123'});
 await send('note-save', {id: 's2', title: '보통 메모', text: '보통 내용'});
 await p.eval(`location.reload()`); await p.waitFor(p.visible('#workspace'), 15000, '다시 연 작업 화면'); await sleep(1200);
+// v0.43.0 결함: 처음 그릴 때(파일 중간의 await 동안) 아직 만들어지지 않은 값을 써서 ‘… before initialization’ 이 떴다.
+const initNotice = await p.eval(`document.getElementById('notice').hidden?'':document.getElementById('notice').textContent`);
+ok('다시 열 때 오류 글이 뜨지 않는다(처음 그릴 때 아직 없는 값을 쓰지 않는다)', !/initialization|is not defined|Cannot access/.test(initNotice), initNotice);
 await tab('s1'); await sleep(700);
-ok('메모 칸 바로 위에 비밀 메모 체크가 있다', await p.eval(`(()=>{const row=document.getElementById('note-secret').closest('.secret-row');return row.nextElementSibling?.getAttribute('for')==='note'||row.nextElementSibling?.nextElementSibling?.id==='note';})()`));
+const row = await p.eval(`(()=>{const r=document.querySelector('.note-opts');const o=[...r.querySelectorAll('.opt')];const box=e=>e.getBoundingClientRect();
+  return {n:o.length,lock:o[0].contains(document.getElementById('note-secret'))&&o[0].innerText.includes('암호설정'),clip:o[1].contains(document.getElementById('clip-toggle'))&&o[1].innerText.includes('자동 붙여넣기'),
+    oneLine:Math.abs(box(o[0]).top-box(o[1]).top)<2&&Math.abs(box(o[0]).height-box(o[1]).height)<2,gap:box(document.getElementById('note')).top-box(r).bottom};})()`);
+ok('메모 칸 바로 위 한 줄에 암호설정 · 자동 붙여넣기 두 칸이 나란히(같은 높이) 있다', row.n === 2 && row.lock && row.clip && row.oneLine && row.gap >= 0 && row.gap < 30, row);
 await p.eval(`(()=>{const c=document.getElementById('note-secret');c.checked=true;c.dispatchEvent(new Event('change'));})()`); await sleep(600);
 ok('게스트가 체크하면 PIN 만들기 창이 뜬다(한 번 더 칸 포함)', await dialog() && await p.eval(`!document.getElementById('mark-pin-input2').hidden`));
 await submitPin('246810', '135790');
@@ -126,6 +132,19 @@ await p.eval(`chrome.storage.local.set({clipboardImport:true,clipError:'바탕�
 ok('켜진 채 도우미가 오류를 알리면 ‘오류’ 로(연결 안 됨이 아니다)', (await p.text('#clip-state')) === '오류');
 await p.eval(`chrome.storage.local.set({clipboardImport:false,clipError:''})`); await sleep(400);
 ok('까닭이 없으면 줄을 감춘다', !(await p.eval(p.visible('#clip-why'))));
+ok('자동 붙여넣기 칸이 오류일 때 붉게 표시된다(두 기능을 색으로 구분)', await p.eval(`(async()=>{await chrome.storage.local.set({clipError:'x'});await new Promise(r=>setTimeout(r,400));const bad=document.getElementById('clip-toggle').closest('.opt').classList.contains('bad');await chrome.storage.local.set({clipError:''});return bad&&!document.getElementById('note-secret').closest('.opt').classList.contains('bad');})()`));
+
+// ── 오류 신고: 새 탭으로 신고 페이지를 연다(확장은 아무것도 보내지 않는다) ──
+await p.eval(`(()=>{window.__made=[];const fake=o=>{window.__made.push(o.url);return Promise.resolve({});};try{chrome.tabs.create=fake;}catch{}if(chrome.tabs.create!==fake)Object.defineProperty(chrome.tabs,'create',{value:fake,configurable:true});})()`);
+await p.eval(`document.querySelector('[data-page="notes"]').click()`); await sleep(300);
+await p.eval(`document.getElementById('report-bug').click()`); await sleep(500);
+await p.eval(`document.getElementById('dock-settings').click()`); await sleep(500);
+await p.eval(`document.getElementById('report-settings').click()`); await sleep(500);
+const made = await p.eval(`window.__made`);
+const q = u => Object.fromEntries(new URL(u).searchParams);
+ok('아래 줄 ‘오류 신고’ 는 신고 페이지를 프로그램 ID · 버전 · 화면 이름과 함께 연다', made.length === 2 && made[0].startsWith('https://script.google.com/macros/s/') && q(made[0]).app === 'daissam-toolkit'
+  && q(made[0]).v === (await p.eval(`chrome.runtime.getManifest().version`)) && q(made[0]).where === '사이드바 · 빠른 메모', made);
+ok('설정의 ‘오류 신고하기’ 도 같은 페이지를 열고 화면 이름은 설정', q(made[1] || 'https://x/').where === '사이드바 · 설정' && Object.keys(q(made[1] || 'https://x/')).sort().join() === 'app,v,where', made[1]);
 const g = await C.open(ORIGIN + '/grab.html#mode=area&why=' + encodeURIComponent('발표 도우미 앱이 필요합니다 — 테스트 까닭'), {width: 440, height: 470});
 await sleep(800);
 ok('화면 고르기 창은 실패처럼 말하지 않고, 도우미로 못 고른 까닭을 보인다', /화면 고르기/.test(await g.text('h1')) && /테스트 까닭/.test(await g.text('#why')));

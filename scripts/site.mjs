@@ -10,6 +10,11 @@ const version = JSON.parse(fs.readFileSync('extension/manifest.json', 'utf8')).v
 const OUT = 'site';
 const REPO = 'janghwansangai/daissam-toolkit';
 const STORE = 'https://chromewebstore.google.com/detail/penklhfehmfoebmeolplklmjjcjhhnpi';
+// 오류 신고(오류 취합 센터 · Google Apps Script). 비밀 키는 없다 — 위젯이 사람이 적어 보낸 신고만 이 주소로 보낸다.
+// 사이트 페이지에만 넣는다(PDF 로 인쇄하는 안내문에는 넣지 않는다 — 떠 있는 단추가 인쇄되지 않게).
+const REPORT = 'https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWSVU5qE5_gUh3bNUskBhHDlXH6FskvA/exec';
+const WIDGET = `<script src="${REPORT}?asset=widget.js" data-app="daissam-toolkit" data-version="${version}" defer></script>`;
+const REPORT_PAGE = `${REPORT}?app=daissam-toolkit&v=${encodeURIComponent(version)}&where=${encodeURIComponent('소개 사이트')}`;
 fs.rmSync(OUT, {recursive: true, force: true});
 fs.mkdirSync(OUT + '/img', {recursive: true});
 
@@ -20,7 +25,7 @@ const C = new Chrome({ext: fs.realpathSync('extension'), profile: tmp + '/profil
 await C.start();
 for (const [name, src, pdf] of guides) {
   const page = fs.readFileSync(src, 'utf8').replaceAll('{{VERSION}}', version);
-  fs.writeFileSync(`${OUT}/${name}.html`, page);
+  fs.writeFileSync(`${OUT}/${name}.html`, page.replace('</head>', WIDGET + '</head>'));
   fs.writeFileSync(`${tmp}/${name}.html`, page);
   const tab = await C.open(`file://${tmp}/${name}.html`, {width: 900, height: 1200}); await sleep(1200);
   const {data} = await tab.cmd('Page.printToPDF', {printBackground: true, preferCSSPageSize: false, paperWidth: 8.27, paperHeight: 11.69,
@@ -37,7 +42,7 @@ fs.copyFileSync('extension/fonts/PretendardVariable.woff2', `${OUT}/img/Pretenda
 
 const esc = s => s.replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const policy = fs.readFileSync('store/privacy-policy.txt', 'utf8').trim().split('\n');
-const base = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="img/icon-128.png">
+const base = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="img/icon-128.png">${WIDGET}
 <style>@font-face{font-family:P;src:url(img/Pretendard.woff2) format('woff2');font-weight:100 900;font-display:swap}
 :root{--bg:#f6f8f5;--card:#fff;--ink:#17241d;--sub:#56665d;--line:#dde5df;--acc:#1d4a3a;--hero:#0f2921;--mint:#9fd8b8}
 @media (prefers-color-scheme:dark){:root{--bg:#101612;--card:#18211c;--ink:#e6ede8;--sub:#9fb0a6;--line:#2a3630;--acc:#7fd0a8}}
@@ -46,8 +51,11 @@ a{color:var(--acc)}.w{max-width:1040px;margin:0 auto;padding:0 20px}
 nav{background:var(--hero);color:#fff}nav .w{display:flex;align-items:center;gap:18px;height:60px}nav b{font-size:19px;margin-right:auto;display:flex;gap:8px;align-items:center}nav img{width:26px}nav a{color:#d6e6dc;text-decoration:none;font-size:15px}
 nav b,nav a{white-space:nowrap}@media (max-width:640px){nav .w{height:auto;flex-wrap:wrap;padding:12px 16px;gap:4px 16px}nav b{width:100%}}
 footer{color:var(--sub);font-size:14px;padding:40px 0 60px;text-align:center}</style>`;
-const nav = `<nav><div class="w"><b><img src="img/icon-128.png" alt="">다있쌤</b><a href="./">소개</a><a href="install.html">설치 안내</a><a href="guide.html">사용설명서</a><a href="privacy.html">개인정보</a></div></nav>`;
-const foot = `<footer>다있쌤 · 만든이 다있쌤 로디 · 서버도 회원가입도 없습니다 · <a href="privacy.html">개인정보처리방침</a> · <a href="https://github.com/${REPO}">GitHub</a></footer>`;
+const nav = `<nav><div class="w"><b><img src="img/icon-128.png" alt="">다있쌤</b><a href="./">소개</a><a href="install.html">설치 안내</a><a href="guide.html">사용설명서</a><a href="privacy.html">개인정보</a><a href="${REPORT_PAGE}" id="bug-link" target="_blank" rel="noopener">오류 신고</a></div></nav>`;
+const foot = `<footer>다있쌤 · 만든이 다있쌤 로디 · 서버도 회원가입도 없습니다 · <a href="privacy.html">개인정보처리방침</a> · <a href="https://github.com/${REPO}">GitHub</a></footer>
+<script>// 메뉴의 ‘오류 신고’ 는 위젯이 있으면 위젯 창을, 없으면(막혔거나 느릴 때) 신고 페이지를 새 탭으로 연다.
+document.getElementById('bug-link').addEventListener('click',e=>{if(window.BugReporter){e.preventDefault();window.BugReporter.open();}});
+window.addEventListener('load',()=>{if(window.BugReporter)window.BugReporter.setContext({screen:document.title});});</script>`;
 
 fs.writeFileSync(`${OUT}/privacy.html`, `<!doctype html><html lang="ko"><title>개인정보처리방침 · 다있쌤</title>${base}<style>main{max-width:760px;margin:40px auto;padding:0 20px}h1{font-size:28px}</style><body>${nav}<main><h1>${esc(policy[0])}</h1>${policy.slice(1).map(l => l.trim() ? `<p>${esc(l)}</p>` : '').join('')}</main>${foot}</body></html>`);
 
@@ -86,10 +94,11 @@ fetch('https://api.github.com/repos/${REPO}/releases/latest').then(r=>r.ok?r.jso
 }).catch(()=>{});
 </script></body></html>`);
 // 보안 머리글: http 로 들어와도 브라우저가 https 로만 쓰게(HSTS), 페이지 안의 http 주소는 https 로 올려 불러오게(upgrade-insecure-requests),
-// 불러올 수 있는 곳은 이 사이트와 GitHub 최신 릴리스 조회(api.github.com)뿐이다.
+// 불러올 수 있는 곳은 이 사이트 · GitHub 최신 릴리스 조회(api.github.com) · 오류 신고 위젯과 그 전송(script.google.com ·
+// script.googleusercontent.com — Apps Script 는 응답을 이 주소로 넘긴다)뿐이다.
 fs.writeFileSync(`${OUT}/_headers`, `/*
   Strict-Transport-Security: max-age=31536000
-  Content-Security-Policy: upgrade-insecure-requests; default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: upgrade-insecure-requests; default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://script.google.com https://script.googleusercontent.com; connect-src 'self' https://api.github.com https://script.google.com https://script.googleusercontent.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY

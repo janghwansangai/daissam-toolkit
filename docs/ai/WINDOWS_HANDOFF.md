@@ -335,3 +335,13 @@ v0.41.0 요청(자동 백업 명령 다섯 가지) **처리됨.** 검토 결함 
 5. 9장 형식으로 PR 에 남긴다. `Presenter.cs` 를 고쳤으면 버전은 맥 세션이 올린다.
 - 선택(판단은 윈도우 세션): 도우미 오버레이가 어떤 까닭으로 실패하면 `ms-screenclip:` 로 윈도우 캡처 도구를 띄우는 대체 길.
 - 윈도우에서 돌릴 수 있는 시험: `node tests/e2e/features043.e2e.mjs`(Chrome for Testing, 도우미 없이 34건), `npm test`.
+
+## v0.44.0 — 요청: 트레이 메뉴에 ‘오류 신고’ 한 줄(사용자 요청 · 오류 취합 센터)
+
+사용자 요청(2026-11-01): 사용자가 오류 · 개선 의견을 보내면 사용자의 오류 취합 센터(Google Apps Script)로 모이게. 확장은 사이드바 아래 줄 · 설정에, 소개 사이트는 위젯으로, 맥 앱은 메뉴 막대 메뉴 `오류 신고…` 로 넣었다(v0.44.0). **비밀 키는 없다 — 새로 만들거나 넣지 말 것.** 앱은 아무것도 보내지 않고 기본 브라우저로 주소만 연다.
+
+윈도우 `Presenter.cs` 트레이 메뉴(`사용 방법` 다음, `앱 종료` 앞)에 `오류 신고…` 를 더해 주세요. 누르면:
+```
+https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWSVU5qE5_gUh3bNUskBhHDlXH6FskvA/exec?app=daissam-toolkit&v=<Presenter.Ver>&where=<URL 인코딩한 "윈도우 발표 도우미 · 트레이">
+```
+를 `Process.Start(new ProcessStartInfo{FileName=url,UseShellExecute=true})` 로 연다(v · where 는 `Uri.EscapeDataString`). 맥 쪽 구현은 `Presenter.swift` `reportBug()`. 버전은 맥 세션이 올린다.

@@ -9,6 +9,11 @@ let noteOrder=[],folderOrder=[],marksOpenUntil=0;
 // 비밀 메모(v0.43.0): 지금 열어 둔 비밀 메모 하나. 다른 메모로 옮기거나 사이드바가 가려지거나 잠기면 비운다.
 let secretOpenId=null,currentSecret=false;
 function secretCovered(){return currentSecret&&secretOpenId!==currentNoteId;}
+// 아래 값들은 사이드바가 처음 그려질 때(파일 중간의 `await renderState(first)`) 이미 쓰일 수 있어 여기서 먼저 만든다.
+// 파일 끝에 두었더니 그 await 동안 아직 만들어지지 않아 ‘Cannot access … before initialization’ 이 났다(v0.43.0).
+const PASTE_DB='dais-note-images',PASTE_STORE='images',MARK_GRACE=5*60*1000;
+const STAMP_TITLE=/^\d{1,2}\/\d{1,2} \d{2}:\d{2}(:\d{2})?$/;
+let shotURLs=[],sweptAt=0,pinAsk=null;
 let profileState,device,editingNote=false,currentNoteId=null,unsavedNote=false,myRevision='',markFolder='',vaultItems=[],vaultEpoch=0,vaultBusy=false;
 // 백업 복원 화면이 들고 있는 것. 잠금 상태에서는 비운다(백업 내용이 메모리에 남아 있지 않게).
 let openedBackup=null,backupFile=null,gateBackupFile=null;
@@ -314,6 +319,7 @@ async function loadClip(){
   // (예전에는 잠깐 뜨는 알림에만 있어 무엇을 해야 할지 몰랐다 — 사용자 보고, 윈도우).
   $('clip-state').textContent=error?(on?'오류':'연결 안 됨'):on?'가져오는 중':'꺼짐';
   $('clip-state').classList.toggle('on',on&&!error);
+  $('clip-toggle').closest('.opt').classList.toggle('bad',!!error);
   $('clip-why').textContent=error;$('clip-why').hidden=!error;
   const note=currentNoteId;
   const shots=[...((local.noteImages||{})[note]||[])].sort((a,b)=>(a.time||0)-(b.time||0));
@@ -1936,7 +1942,6 @@ dragOrder($('note-tabs'),'notes');dragOrder($('folder-tabs'),'folders');
 
 // PIN 묻기 창 하나를 보안 북마크 · 비밀 메모가 함께 쓴다. 맞힌 PIN 을 돌려주고, 그만두면 null.
 // create: PIN 이 없는 게스트가 새로 만든다(두 번 입력) — 그 PIN 이 확장 PIN 이 되고 잠금은 꺼진 채로 둔다.
-let pinAsk=null;
 function askPin({head,what,go='열기',create=false}){
   pinAsk?.resolve(null);
   $('mark-pin-head').textContent=head;$('mark-pin-what').textContent=what;$('mark-pin-go').textContent=go;
@@ -1960,7 +1965,6 @@ $('mark-pin-form').addEventListener('submit',async e=>{
 event('mark-pin-cancel','click',()=>endPinAsk(null));
 $('mark-pin').addEventListener('close',()=>{if(pinAsk)endPinAsk(null);});
 // 보안 북마크: 누르면 PIN 을 묻고, 맞히면 5분 동안은 다시 묻지 않는다(이 사이드바 안에서만).
-const MARK_GRACE=5*60*1000;
 async function openSecureMark(item){
   const url=safeURL(item.url);
   if(Date.now()<marksOpenUntil){await chrome.tabs.create({url});return;}
@@ -2079,8 +2083,6 @@ event('note-secret','change',async()=>{
 // ── 메모에 그림 붙여넣기(v0.43.0) ────────────────────────────────────────────
 // Ctrl+V(맥 Command+V)로 붙인 그림을 이 메모 아래에 쌓는다. 발표 도우미 없이도 된다(윈도우 캡처 도구 Win+Shift+S 로 찍고 붙이기).
 // 원본은 이 컴퓨터의 확장 저장소(IndexedDB)에만, 목록과 작은 미리보기는 noteImages 에 둔다. 그림 id 로 짝을 맞춘다.
-const PASTE_DB='dais-note-images',PASTE_STORE='images';
-let shotURLs=[],sweptAt=0;
 function pasteDB(mode,work){
   return new Promise((resolve,reject)=>{
     const request=indexedDB.open(PASTE_DB,1);
@@ -2131,7 +2133,6 @@ async function copyImage(blob){
   catch{throw Error('그림을 클립보드에 올리지 못했습니다. ‘크게 · 편집’ 에서 복사해 보세요.');}
   finally{if(held)await api('clip-hold',{on:false}).catch(()=>{});}
 }
-const STAMP_TITLE=/^\d{1,2}\/\d{1,2} \d{2}:\d{2}(:\d{2})?$/;
 async function pasteImages(files){
   if(secretCovered())throw Error('비밀 메모를 먼저 여세요.');
   const title=$('note-title').value.trim();
@@ -2163,3 +2164,18 @@ document.addEventListener('paste',e=>{
   notice();
   pasteImages(files).catch(error=>notice(error.message));
 });
+
+// ── 오류 신고(v0.44.0) ─────────────────────────────────────────────────────
+// 확장은 바깥 스크립트를 불러올 수 없어(MV3 · 웹 스토어 정책) 신고 위젯 대신 신고 페이지를 새 탭으로 연다. 이 확장은
+// 아무것도 보내지 않는다 — 주소에는 프로그램 ID · 버전 · 지금 화면 이름만 싣고, 내용은 사람이 그 페이지에서 직접 적어 보낸다.
+const REPORT_URL='https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWSVU5qE5_gUh3bNUskBhHDlXH6FskvA/exec';
+const PAGE_NAME={notes:'빠른 메모',vault:'북마크',capture:'캡처',presenter:'발표',tools:'유틸리티',settings:'설정'};
+function reportURL(){
+  const page=[...document.querySelectorAll('.page')].find(node=>!node.hidden)?.id;
+  const where=$('workspace').hidden?'사이드바 · 처음 화면':'사이드바 · '+(PAGE_NAME[page]||'');
+  const query={app:'daissam-toolkit',v:chrome.runtime.getManifest().version,where};
+  return REPORT_URL+'?'+Object.entries(query).map(([key,value])=>key+'='+encodeURIComponent(value)).join('&');
+}
+event('report-bug','click',()=>chrome.tabs.create({url:reportURL()}));
+event('report-settings','click',()=>chrome.tabs.create({url:reportURL()}));
+
