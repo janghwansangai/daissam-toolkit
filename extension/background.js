@@ -163,6 +163,7 @@ async function initialize() {
     if(guardsInjected)return;
     const existing=await chrome.tabs.query({url:['http://*/*','https://*/*']});
     await Promise.allSettled(existing.map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id,allFrames:true},files:['guard.js']})));
+    await Promise.allSettled(existing.map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id},files:['sidetab.js']})));
     await chrome.storage.session.set({guardsInjected:true});
   });
   await enforce();
@@ -697,8 +698,10 @@ chrome.notifications.onClicked.addListener(id=>{
 });
 async function runCapture(mode,{after,notify,widen}={}){
   let away=null;
+  sideHold++;
   try{
     await capturable();
+    await sideTabTell().catch(()=>{});
     if(widen)away=await sidePanelAway();
     const result=await captureAndDeliver(mode,{...(after?{after}:{}),...(widen?{widen:true}:{})});
     const text=captureNotice(result);
@@ -715,7 +718,7 @@ async function runCapture(mode,{after,notify,widen}={}){
     }
     await captureDone(done,String(error?.message||error),notify?'캡처하지 못했습니다':'');
     throw error;
-  }finally{ if(away)await away.back(true); }
+  }finally{ if(away)await away.back(true); sideHold--; sideTabTell().catch(()=>{}); }
 }
 // 이 탭은 Chrome 이 확장에게 찍게 두지 않는다. ① 선택 영역이고 발표 도우미 앱이 있으면 앱이 화면에서 직접 고른다
 // (다른 앱 · 다른 모니터도 된다). ② 그 밖에는 작은 창을 띄워 '화면 고르기'(Chrome 의 화면 공유 고르기)로 찍는다
@@ -811,10 +814,55 @@ chrome.windows.onFocusChanged.addListener(id=>{
 chrome.windows.onRemoved.addListener(id=>{
   if(!recordWindow||id!==recordWindow)return;
   recordWindow=0;
+  sideTabTell().catch(()=>{});
   const port=badgeConnect();
   if(!port)return;
   try{ port.postMessage({type:'recorder',action:'hide'}); port.disconnect(); }catch{}
   badgePort=null;
+});
+// ── 자동 숨김 책갈피(v0.45.0) ─────────────────────────────────────────────
+// 자동 숨김을 켜면 사이드바는 마우스가 벗어날 때 스스로 닫히고, 페이지 오른쪽 끝에 책갈피(sidetab.js)가 뜬다.
+// 책갈피는 그 창에 사이드바가 닫혀 있을 때만 보인다. 어느 창에 열려 있는지는 사이드바가 열릴 때 · 닫힐 때 알려 주고
+// (side-panel), Chrome 141+ 는 onOpened / onClosed 로도 안다. 사이드바의 창 번호는 getContexts 가 알려 주지 않는다(-1) —
+// 그래서 닫힘 알림이 빠졌을 때(사용자가 ✕ 로 닫음 등)는 ‘사이드바가 하나도 없으면 모두 닫힌 것’ 으로만 바로잡는다.
+// 캡처하는 동안과 녹화 창이 떠 있는 동안은 책갈피를 숨긴다(찍힌 그림 · 영상에 들어가지 않게).
+const WEB_PAGES=['http://*/*','https://*/*'];
+let sideHold=0;
+async function sidePanelsOpen(){ return (await chrome.storage.session.get('sidePanels')).sidePanels||{}; }
+async function sideMark(windowId,open){
+  const map=await sidePanelsOpen();
+  if(open)map[windowId]=Date.now(); else delete map[windowId];
+  await chrome.storage.session.set({sidePanels:map});
+  await sideTabTell(windowId);
+}
+async function sideTabView(windowId){
+  const {sideAutoHide,sideTabSpot}=await chrome.storage.local.get(['sideAutoHide','sideTabSpot']);
+  const on=sideAutoHide===true,spot=Number.isFinite(sideTabSpot)?Math.min(1,Math.max(0,sideTabSpot)):.5;
+  if(!on||sideHold>0||recordWindow||(await state()).locked)return {on,show:false,spot};
+  const map=await sidePanelsOpen();
+  let open=!!map[windowId];
+  // 연 지 3초가 지났는데 사이드바가 하나도 없으면 닫힌 것이다(갓 연 사이드바는 아직 뜨는 중일 수 있다).
+  if(open&&Date.now()-map[windowId]>3000&&chrome.runtime.getContexts){
+    const panels=await chrome.runtime.getContexts({contextTypes:['SIDE_PANEL']}).catch(()=>null);
+    if(panels&&!panels.length){await chrome.storage.session.set({sidePanels:{}});open=false;}
+  }
+  return {on,show:!open,spot};
+}
+// 책갈피들에게 지금 모습을 알린다(windowId 가 없으면 모든 창). 책갈피는 숨을 때 화면에서 실제로 사라진 뒤에 답한다.
+// 자동 숨김이 꺼져 있으면 아무 탭도 깨우지 않는다(always: 켬 · 끔 · 자리를 바꿀 때는 꺼져 있어도 모두에게 알린다).
+async function sideTabTell(windowId,always=false){
+  if(!always&&(await chrome.storage.local.get('sideAutoHide')).sideAutoHide!==true)return;
+  const tabs=await chrome.tabs.query(windowId===undefined?{url:WEB_PAGES}:{windowId,url:WEB_PAGES}).catch(()=>[]);
+  const views=new Map();
+  await Promise.allSettled(tabs.map(async tab=>{
+    if(!views.has(tab.windowId))views.set(tab.windowId,sideTabView(tab.windowId));
+    await chrome.tabs.sendMessage(tab.id,{type:'side-tab',...await views.get(tab.windowId)},{frameId:0});
+  }));
+}
+chrome.sidePanel?.onOpened?.addListener?.(info=>{ if(Number.isInteger(info?.windowId))exclusive(()=>sideMark(info.windowId,true)).catch(()=>{}); });
+chrome.sidePanel?.onClosed?.addListener?.(info=>{ if(Number.isInteger(info?.windowId))exclusive(()=>sideMark(info.windowId,false)).catch(()=>{}); });
+chrome.windows.onRemoved.addListener(id=>{
+  exclusive(async()=>{const map=await sidePanelsOpen();if(map[id]){delete map[id];await chrome.storage.session.set({sidePanels:map});}}).catch(()=>{});
 });
 chrome.idle.onStateChanged.addListener(s=>exclusive(async()=>{
   await ready;
@@ -871,6 +919,16 @@ async function fitRestoreAll(windowId){
 function trusted(sender) { return sender.url?.startsWith(chrome.runtime.getURL('')); }
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{
   if(!m?.type || ['state-changed','lock-state','play-tone'].includes(m.type))return;
+  // 책갈피를 누른 바로 그 순간에 열어야 Chrome 이 허락한다 — 줄 서기(exclusive)나 await 를 거치면 ‘누름’ 이 사라진다.
+  if(m.type==='side-open'){
+    const windowId=sender.tab?.windowId;
+    if(!Number.isInteger(windowId)){reply({ok:false,error:'창을 찾지 못했습니다.'});return;}
+    chrome.sidePanel.open({windowId}).then(()=>{
+      reply({ok:true,data:true});
+      exclusive(()=>sideMark(windowId,true)).catch(()=>{});
+    },error=>reply({ok:false,error:error.message}));
+    return true;
+  }
   exclusive(async()=>{
     await ready;
     if(m.type==='state')return state();
@@ -884,6 +942,15 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       at=Math.max(0,Math.min(ZOOM_STEPS.length-1,at+(m.step>0?1:-1)));
       await chrome.tabs.setZoom(tab,ZOOM_STEPS[at]);
       return ZOOM_STEPS[at];
+    }
+    if(m.type==='side-tab')return Number.isInteger(sender.tab?.windowId)?sideTabView(sender.tab.windowId):{on:false,show:false,spot:.5};
+    // 책갈피를 끌어 옮긴 자리(0 = 맨 위 · 1 = 맨 아래). 이 컴퓨터의 모든 탭이 같은 자리를 쓴다.
+    if(m.type==='side-spot'){
+      const spot=Number(m.spot);
+      if(!sender.tab||!Number.isFinite(spot)||spot<0||spot>1)throw new Error('책갈피 자리가 맞지 않습니다.');
+      await chrome.storage.local.set({sideTabSpot:Math.round(spot*1000)/1000});
+      await sideTabTell(undefined,true);
+      return true;
     }
     if(m.type==='open-unlock') { if((await state()).locked)await chrome.windows.create({url:chrome.runtime.getURL('panel.html?unlock=1'),type:'popup',width:440,height:660});return true; }
     if(m.type==='close-guard-window' && sender.tab?.windowId!==undefined && (await state()).locked){await chrome.windows.remove(sender.tab.windowId);return true;}
@@ -900,6 +967,17 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       }
     }
     if(!trusted(sender))throw new Error('확장 패널에서만 사용할 수 있습니다.');
+    if(m.type==='side-auto'){
+      await chrome.storage.local.set({sideAutoHide:m.on===true});
+      await sideTabTell(undefined,true);
+      return m.on===true;
+    }
+    if(m.type==='side-panel'){
+      const windowId=Number(m.windowId);
+      if(!Number.isInteger(windowId)||windowId<0)throw new Error('창 번호가 맞지 않습니다.');
+      await sideMark(windowId,m.open===true);
+      return true;
+    }
     if(m.type==='setup'){
       if(await profile())throw new Error('이미 설정된 프로필입니다.');
       if(m.guest){
@@ -1067,6 +1145,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       const made=await chrome.windows.create({url:chrome.runtime.getURL('record.html?'+query),type:'popup',
         width:big?860:400,height:big?660:(control?214:190),focused:true});
       recordWindow=made.id||0;
+      sideTabTell().catch(()=>{});
       // 그 탭에서 사이드바를 다시 켜 둔다(열지는 않는다 — 열면 녹화 화면에 다시 끼어든다).
       if(away)setTimeout(()=>{away.back(false).catch(()=>{});},1500);
       return {opened:true};

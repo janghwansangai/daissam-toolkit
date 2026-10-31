@@ -2179,3 +2179,64 @@ function reportURL(){
 event('report-bug','click',()=>chrome.tabs.create({url:reportURL()}));
 event('report-settings','click',()=>chrome.tabs.create({url:reportURL()}));
 
+
+// ── 자동 숨김(v0.45.0) ─────────────────────────────────────────────────────
+// 켜 두면 마우스가 사이드바 밖으로 나가고 0.7초가 지나면 사이드바를 닫는다. 페이지 오른쪽 끝의 책갈피(sidetab.js)를 누르면
+// 다시 열린다 — Chrome 은 ‘누름’ 없이 사이드바를 열어 주지 않아, 마우스를 올리기만 해서는 열 수 없다.
+// 닫지 않는 때: 작은 창(PIN 등)이 떠 있음 · 방금 글을 치는 중(1.5초) · 한글 조합 중 · 마우스 단추를 누른 채 · 파일 고르기 창 ·
+// 오른쪽 클릭 메뉴 · 처음 화면/잠금 화면 · 지금 탭에 책갈피가 뜰 수 없음(새 탭 · Chrome 설정 · 웹 스토어 등 — 그때 닫으면
+// 되돌아올 길이 확장 아이콘뿐이다). 사이드바로 열린 때만 한다(탭이나 잠금 해제 창으로 열면 하지 않는다).
+const HIDE_AFTER=700;
+let autoHide=false,sideWindow=null,outside=false,hideTimer=0,typedAt=0,pressed=false,imeOn=false,menuOpen=false,holdUntil=0;
+function sideBusy(){
+  return !!document.querySelector('dialog[open]')||$('workspace').hidden||pressed||imeOn||menuOpen||Date.now()<holdUntil||Date.now()-typedAt<1500;
+}
+function sideSchedule(ms=HIDE_AFTER){
+  clearTimeout(hideTimer);
+  if(autoHide&&sideWindow!==null&&outside)hideTimer=setTimeout(()=>sideHide().catch(()=>{}),ms);
+}
+async function sideBookmarkReady(){
+  const [tab]=await chrome.tabs.query({active:true,windowId:sideWindow});
+  if(!tab?.id)return false;
+  try{return (await chrome.tabs.sendMessage(tab.id,{type:'side-tab-ping'},{frameId:0}))===true;}catch{return false;}
+}
+async function sideHide(){
+  if(!autoHide||sideWindow===null||!outside)return;
+  if(sideBusy()){sideSchedule(500);return;}          // 바쁜 일이 끝나고도 마우스가 밖에 있으면 그때 숨는다
+  if(!(await sideBookmarkReady())||!outside||!autoHide)return;
+  flushNote();
+  await chrome.runtime.sendMessage({type:'side-panel',open:false,windowId:sideWindow}).catch(()=>{});
+  window.close();
+}
+document.documentElement.addEventListener('mouseleave',e=>{outside=true;pressed=(e.buttons&1)===1;sideSchedule();});
+document.documentElement.addEventListener('mouseenter',e=>{outside=false;menuOpen=false;pressed=(e.buttons&1)===1;clearTimeout(hideTimer);});
+document.addEventListener('mousedown',()=>{pressed=true;menuOpen=false;},true);
+document.addEventListener('mouseup',()=>{pressed=false;},true);
+document.addEventListener('keydown',()=>{typedAt=Date.now();menuOpen=false;},true);
+document.addEventListener('compositionstart',()=>{imeOn=true;},true);
+document.addEventListener('compositionend',()=>{imeOn=false;typedAt=Date.now();},true);
+document.addEventListener('contextmenu',()=>{menuOpen=true;},true);
+document.addEventListener('click',e=>{if(e.target?.closest?.('input[type=file]'))holdUntil=Date.now()+120000;},true);
+document.addEventListener('change',e=>{if(e.target?.type==='file')holdUntil=0;},true);
+window.addEventListener('focus',()=>{holdUntil=0;});
+(async()=>{
+  try{autoHide=(await chrome.storage.local.get('sideAutoHide')).sideAutoHide===true;}catch{}
+  $('auto-hide').checked=autoHide;
+  if(await chrome.tabs.getCurrent())return;            // 탭으로 연 사이드바 화면(시험 · 잠금 해제 창)
+  sideWindow=(await chrome.windows.getCurrent()).id;
+  // 이 창에 사이드바가 열렸다고 알린다 — 그 창의 책갈피가 숨는다. 닫힐 때도 알린다(✕ 로 닫아도).
+  api('side-panel',{open:true,windowId:sideWindow}).catch(()=>{});
+  window.addEventListener('pagehide',()=>{chrome.runtime.sendMessage({type:'side-panel',open:false,windowId:sideWindow}).catch(()=>{});});
+})().catch(()=>{});
+event('auto-hide','change',async()=>{
+  autoHide=$('auto-hide').checked;
+  if(!autoHide)clearTimeout(hideTimer);
+  if(sideWindow!==null)await api('side-panel',{open:true,windowId:sideWindow}).catch(()=>{});
+  await api('side-auto',{on:autoHide});                 // 저장하고 모든 탭의 책갈피에 알린다
+  notice(autoHide?'자동 숨김을 켰습니다. 마우스가 사이드바를 벗어나면 숨고, 화면 오른쪽 끝의 책갈피를 누르면 다시 나옵니다(책갈피는 위아래로 끌어 옮길 수 있어요).':'자동 숨김을 껐습니다.');
+});
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area!=='local'||!changes.sideAutoHide)return;
+  autoHide=changes.sideAutoHide.newValue===true;$('auto-hide').checked=autoHide;
+  if(!autoHide)clearTimeout(hideTimer);
+});
