@@ -39,10 +39,12 @@ await p.cmd('Emulation.setDeviceMetricsOverride', {width: 400, height: 900, devi
 
 // ── 웹 페이지 · 서비스 워커 ──
 async function webTab(url = WEB) {
-  const {targetId} = await C.send('Target.createTarget', {url});
+  const {targetId} = await C.send('Target.createTarget', {url: 'about:blank'});
   const {sessionId} = await C.send('Target.attachToTarget', {targetId, flatten: true});
-  const page = new Page(C, sessionId, targetId); await page.cmd('Runtime.enable');
-  await page.waitFor(`document.readyState==='complete'`, 10000); await sleep(400);
+  const page = new Page(C, sessionId, targetId); await page.cmd('Runtime.enable'); await page.cmd('Page.enable');
+  // Chrome 156 은 만들 때 준 주소로 넘어가는 동안 붙은 연결이 빈 페이지에 남는다 — 빈 탭에 붙은 뒤 직접 옮긴다.
+  await page.cmd('Page.navigate', {url});
+  await page.waitFor(`location.href===${JSON.stringify(url)}&&document.readyState==='complete'`, 10000); await sleep(400);
   return page;
 }
 async function sw(expression) {
@@ -122,14 +124,29 @@ ok('글을 치다가 마우스가 나가면 바로 닫지 않는다', await pane
 ok('치기를 멈추면 닫는다', await waitPanels(0, 4000));
 await waitTab(web, true);
 
+// ②-2 한글을 치다 멈춘 채(마지막 글자가 조합 중) 마우스가 나가면 — 맥 한글 입력은 다음 글자를 칠 때까지 조합이 끝나지 않는다
+await clickTab(web); await waitPanels(1); sp = await side(); await sp.waitFor(sp.visible('#workspace'), 15000);
+await mouse(sp, 'mouseMoved', 120, 300);
+await sp.eval(`document.getElementById('note').focus()`);
+await sp.cmd('Input.imeSetComposition', {text: '안', selectionStart: 1, selectionEnd: 1});
+await sleep(200);
+const composing = await sp.eval(`document.getElementById('note').value`);
+await mouse(sp, 'mouseMoved', -30, 300); await sleep(800);
+ok('한글 조합 중에 마우스가 나가도 곧바로 닫지 않는다', await panels() === 1, composing);
+ok('조합 중인 글자가 남아 있어도 치기를 멈추면 닫는다(조합이 끝나기를 기다리지 않는다)', await waitPanels(0, 4000), await panels());
+await waitTab(web, true);
+const kept = await p.eval(`chrome.storage.local.get(['pendingNotes','draftNotes']).then(r=>JSON.stringify([...Object.values(r.pendingNotes||{}),...Object.values(r.draftNotes||{})].map(n=>n.text)))`);
+ok('숨으면서 조합 중이던 글자도 메모에 남는다', kept.includes('안'), kept);
+
 // ③ 지금 탭에 책갈피가 뜰 수 없으면(새 탭 · Chrome 화면 등)
 await clickTab(web); await waitPanels(1); sp = await side(); await sp.waitFor(sp.visible('#workspace'), 15000);
 const blank = await C.send('Target.createTarget', {url: 'about:blank'}); await sleep(700);
 await leave(sp); await sleep(2200);
 ok('책갈피가 뜰 수 없는 탭에서는 마우스가 나가도 닫지 않는다(돌아올 길이 아이콘뿐이라)', await panels() === 1);
-await C.send('Target.closeTarget', {targetId: blank.targetId}); await C.send('Target.activateTarget', {targetId: web.targetId}); await sleep(600);
-await leave(sp);
-ok('웹 페이지로 돌아와 마우스가 나가면 닫는다', await waitPanels(0, 4000));
+const why = await sp.eval(`document.getElementById('notice').hidden?'':document.getElementById('notice').textContent`);
+ok('그때는 숨지 않는 까닭을 사이드바에 알린다(고장처럼 보이지 않게)', /책갈피를 띄울 수 없어/.test(why), why);
+await C.send('Target.closeTarget', {targetId: blank.targetId}); await C.send('Target.activateTarget', {targetId: web.targetId});
+ok('마우스가 밖에 있는 채로 웹 페이지 탭으로 돌아오면 그때 닫는다', await waitPanels(0, 4000));
 await waitTab(web, true);
 
 // ✕ 로 닫아도(자동 숨김이 아닌 닫기) 책갈피가 돌아온다

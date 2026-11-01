@@ -1,6 +1,7 @@
 // 실제 Chrome 에 확장을 올려 화면을 눌러 보는 작은 도구. 외부 패키지 없이 Node(22+)의 내장 WebSocket 으로 CDP 를 말한다.
 // `npm test` 에는 들어가지 않는다(Chrome 이 있어야 한다). 손으로 돌린다: node tests/e2e/backup.e2e.mjs
 // Chrome 은 CHROME_BIN 으로 알려 준다. 없으면 puppeteer 가 내려받아 둔 Chrome for Testing 중 가장 새 것을 찾는다.
+// 새 Chrome 판을 처음 켜면 맥 키체인 허락을 기다리느라 페이지가 열리지 않는다(156 실측) — --use-mock-keychain 으로 키체인을 쓰지 않는다.
 // 주의: 확장의 ‘자리를 비우면 잠금’ 은 OS 의 입력 없는 시간을 본다. 자리를 오래 비운 컴퓨터에서 idleMinutes 를
 // 켜 두고 돌리면 시험 도중 잠긴다 — 시험 쪽에서는 idleMinutes:0, lockOnAway:false 로 둔다.
 import {spawn, execFileSync} from 'node:child_process';
@@ -22,7 +23,7 @@ export class Chrome {
   async start() {
     fs.mkdirSync(this.profile, {recursive: true}); fs.mkdirSync(this.downloads, {recursive: true});
     this.proc = spawn(CHROME, [`--user-data-dir=${this.profile}`, `--remote-debugging-port=${this.port}`, `--load-extension=${this.ext}`, `--disable-extensions-except=${this.ext}`,
-      '--no-first-run', '--no-default-browser-check', '--headless=new', '--disable-features=DisableLoadExtensionCommandLineSwitch', ...this.args, 'about:blank'], {stdio: 'ignore'});
+      '--no-first-run', '--no-default-browser-check', '--use-mock-keychain', ...(process.env.CHROME_HEADFUL ? [] : ['--headless=new']), '--disable-features=DisableLoadExtensionCommandLineSwitch', ...this.args, 'about:blank'], {stdio: 'ignore'});
     for (let i = 0; i < 150; i++) {
       try { this.wsUrl = (await (await fetch(`http://127.0.0.1:${this.port}/json/version`)).json()).webSocketDebuggerUrl; break; } catch { await sleep(200); }
     }
