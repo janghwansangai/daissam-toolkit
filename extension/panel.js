@@ -375,10 +375,28 @@ event('clip-toggle','change',async()=>{
   try{await api('clip-toggle',{on});}finally{await loadClip();}
   if(on)notice('켠 뒤에 복사하거나 캡처한 내용만 가져옵니다. 비밀번호 같은 민감한 내용이 클립보드에 들어오면 그대로 메모에 남습니다.');
 });
+// 서비스 워커가 끊긴 순간(꺼지는 중 · 충돌 · 업데이트)에 보낸 저장은 답 없이 실패한다. 화면에는 글이 남아 있어 저장된 줄 알고
+// 사이드바를 닫으면 메모가 통째로 사라졌다(사용자 보고, 재현: 저장 순간에 끊으면 40번 중 8번). 같은 글을 다시 보내도 결과가
+// 같으므로 곧 다시 보낸다. 다시 보낸 옛 글이 새 글을 덮지 않게 저장은 한 줄로 세우고, 글은 부른 순간의 것을 그대로 보낸다.
+const LINK_LOST=/message channel closed|message port closed|Receiving end does not exist|Could not establish connection|확장에 연결할 수 없습니다/i;
+let saveChain=Promise.resolve(),saveBroken=false;
 async function saveNote(){
   if(!currentNoteId||secretCovered())return;
   if(!$('note-title').value.trim())$('note-title').value=stampTitle();
-  const saved=await api('note-save',{id:currentNoteId,title:$('note-title').value,text:$('note').value,tag:windowTag});
+  const id=currentNoteId,data={id,title:$('note-title').value,text:$('note').value,tag:windowTag};
+  const job=saveChain.then(async()=>{
+    for(let tries=0;;tries++){
+      try{const saved=await api('note-save',data);saveBroken=false;return saved;}
+      catch(error){
+        if(!LINK_LOST.test(String(error?.message)))throw error;
+        if(tries>=3){saveBroken=true;throw new Error('메모를 저장하지 못했습니다. 글은 아직 화면에만 있으니 사이드바를 닫지 말고 잠시 뒤 다시 입력해 주세요.');}
+        await new Promise(resolve=>setTimeout(resolve,300));
+      }
+    }
+  });
+  saveChain=job.catch(()=>{});
+  const saved=await job;
+  if(id!==currentNoteId)return;      // 저장을 기다리는 사이 다른 메모로 옮겼다
   myRevision=saved?.revision||'';
   unsavedNote=false;$('note-status').textContent='이 기기에 저장 · 동기화 대기';
 }
@@ -2213,6 +2231,9 @@ async function sideHide(){
   if(!outside||!autoHide)return;
   if(sideWhyShown&&$('notice').textContent===sideWhyShown)notice();
   flushNote();
+  // 저장이 끝나기 전에 닫으면 다시 보낼 곳이 없어진다. 끝내 저장하지 못했으면 글을 잃지 않게 숨지 않는다.
+  await Promise.race([saveChain,new Promise(resolve=>setTimeout(resolve,2500))]);
+  if(saveBroken)return;
   // 서비스 워커가 다른 일로 바빠도 숨기를 미루지 않는다 — 닫힘은 Chrome(onClosed) · pagehide 로도 전해진다.
   await Promise.race([chrome.runtime.sendMessage({type:'side-panel',open:false,windowId:sideWindow}).catch(()=>{}),new Promise(resolve=>setTimeout(resolve,400))]);
   window.close();

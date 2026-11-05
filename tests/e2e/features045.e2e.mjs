@@ -138,6 +138,24 @@ await waitTab(web, true);
 const kept = await p.eval(`chrome.storage.local.get(['pendingNotes','draftNotes']).then(r=>JSON.stringify([...Object.values(r.pendingNotes||{}),...Object.values(r.draftNotes||{})].map(n=>n.text)))`);
 ok('숨으면서 조합 중이던 글자도 메모에 남는다', kept.includes('안'), kept);
 
+// ②-3 확장 내부 연결이 끊겨 저장이 끝내 실패하면 글을 잃지 않게 숨지 않는다(메모 유실 보고)
+await clickTab(web); await waitPanels(1); sp = await side(); await sp.waitFor(sp.visible('#workspace'), 15000);
+await mouse(sp, 'mouseMoved', 120, 300);
+const typeNote = text => `(()=>{const b=document.getElementById('note');b.focus();b.value=${JSON.stringify(text)};b.dispatchEvent(new Event('input',{bubbles:true}));})()`;
+await sp.eval(`window.__send=chrome.runtime.sendMessage;chrome.runtime.sendMessage=()=>Promise.reject(new Error('A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received'));`);
+await sp.eval(typeNote('연결이 끊긴 동안 쓴 글'));
+await mouse(sp, 'mouseMoved', -30, 300); await sleep(4500);
+ok('저장이 끝내 실패하면 마우스가 나가도 닫지 않는다(글이 화면에만 있다)', await panels() === 1);
+const broken = await sp.eval(`document.getElementById('notice').hidden?'':document.getElementById('notice').textContent`);
+ok('저장하지 못했다고 알린다', /저장하지 못했습니다/.test(broken), broken);
+await sp.eval(`chrome.runtime.sendMessage=window.__send;`);
+await sp.eval(typeNote('연결이 돌아온 뒤의 글')); await sleep(700);
+await leave(sp);
+ok('연결이 돌아와 저장되면 다시 숨는다', await waitPanels(0, 4000));
+await waitTab(web, true);
+const back = await p.eval(`chrome.storage.local.get(['pendingNotes','draftNotes']).then(r=>JSON.stringify([...Object.values(r.pendingNotes||{}),...Object.values(r.draftNotes||{})].map(n=>n.text)))`);
+ok('그 글이 메모에 남아 있다', back.includes('연결이 돌아온 뒤의 글'), back);
+
 // ③ 지금 탭에 책갈피가 뜰 수 없으면(새 탭 · Chrome 화면 등)
 await clickTab(web); await waitPanels(1); sp = await side(); await sp.waitFor(sp.visible('#workspace'), 15000);
 const blank = await C.send('Target.createTarget', {url: 'about:blank'}); await sleep(700);
