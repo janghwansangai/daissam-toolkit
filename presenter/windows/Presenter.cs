@@ -1676,9 +1676,9 @@ namespace BrowserSheriff {
         +combos["unlock"].Label+": 클릭 통과 모두 해제\n"
         +"단축키는 사이드바 ‘발표 → 단축키 안내 · 바꾸기’ 에서 바꿉니다.\n"
         +"핀 위에서 휠 크기, Ctrl+휠 투명도, 오른쪽 클릭 메뉴, Esc 닫기.\n"
-        +"\n[모니터가 여러 대일 때]\n집중 모드·포인터 원·화면 조각 핀은 모든 모니터에서\n"
-        +"됩니다. 다만 Windows 의 화면 확대 기능은 주 모니터만\n키울 수 있어(운영체제 제약), 다른 모니터에서는 확대가\n"
-        +"걸리지 않습니다. 화면 녹화·업로드·계정 연결은 없습니다.";
+        +"\n[모니터가 여러 대일 때]\n화면 확대·집중 모드·포인터 원·화면 조각 핀은 모든\n"
+        +"모니터에서 됩니다. 확대는 커서가 있는 곳을 기준으로\n걸리고, Windows 확대는 화면 전체에 걸리므로 다른\n"
+        +"모니터도 함께 커집니다. 화면 녹화·업로드·계정 연결은 없습니다.";
     }
     // 사이드바가 보낸 단축키를 받아 둔다. 같은 값이면 안내 글을 다시 만들지 않는다.
     void SetHotkeys(string text){
@@ -1811,25 +1811,23 @@ namespace BrowserSheriff {
       Native.MagShowSystemCursor(true);
       if(spot!=null&&!spot.Visible)spot.Show();
       if(spot!=null)spot.Cover(stage);
-      // Windows 의 전체 화면 확대(MagSetFullscreenTransform)는 **주 모니터만** 키운다.
-      // 오프셋도 주 모니터 왼쪽 위를 기준으로 하는 값이다. 그래서 커서가 다른 모니터에
-      // 있을 때 확대를 걸면, 보고 있지도 않은 주 모니터의 화면만 엉뚱하게 움직인다.
-      // 그 사이에는 배율을 1로 두고, 포인터 원과 집중 모드만 그 모니터에서 쓴다.
-      // (그 모니터에서도 확대하려면 Windows 디스플레이 설정에서 주 모니터로 바꾸면 된다.)
-      bool onPrimary=here.Primary;
-      float applied=onPrimary?zoom:1f;
+      // 전체 화면 확대(MagSetFullscreenTransform)는 주 모니터만이 아니라 바탕화면 전체에 배율
+      // 하나를 건다: 화면 좌표 = (바탕화면 좌표 − 오프셋) × 배율. 주 모니터 왼쪽이면 오프셋이
+      // 음수일 뿐 모든 모니터에 같은 식이다(문서 · 실측 v0.45.2). 예전에는 ‘주 모니터만 키운다’ 는
+      // v0.25.0 기록을 믿고 다른 모니터에서 배율을 1로 묶어, 보조 모니터 확대가 막혀 있었다(R-0002).
+      // 아래 오프셋이면 p 는 제자리이고, p 가 든 모니터에는 그 모니터 안쪽만 보인다(위 식을 풀면
+      // 보이는 범위가 모니터 양 끝과 p 사이의 내분점이라 밖으로 나갈 수 없다). p 가 모니터를
+      // 건너가도 오프셋이 이어지므로 화면이 튀지 않는다. 다른 모니터도 같은 배율로 함께 커진다.
       // Mouse-anchored crop: source point under the displayed pointer remains p.
-      int x=onPrimary?(int)Math.Round(p.X*(1-1/zoom)):0;
-      int y=onPrimary?(int)Math.Round(p.Y*(1-1/zoom)):0;
-      if(!Native.MagSetFullscreenTransform(applied,x,y)){Stop();MessageBox.Show("확대에 실패하여 원래 화면으로 복원했습니다.");return;}
+      int x=(int)Math.Round(p.X*(1-1/zoom));
+      int y=(int)Math.Round(p.Y*(1-1/zoom));
+      if(!Native.MagSetFullscreenTransform(zoom,x,y)){Stop();MessageBox.Show("확대에 실패하여 원래 화면으로 복원했습니다.");return;}
       lastOffX=x;lastOffY=y;PlacePins();
-      pointer.Shrink=onPrimary?1/zoom:1f;pointer.Location=new Point(p.X-pointer.Half,p.Y-pointer.Half);
+      pointer.Shrink=1/zoom;pointer.Location=new Point(p.X-pointer.Half,p.Y-pointer.Half);
       // The overlay is magnified too, so shrink the hole by the same factor to keep it constant on screen.
-      if(spot!=null){spot.Focus(new Point(p.X,p.Y),Math.Max(8,(int)Math.Round(focusRadius/(onPrimary?zoom:1f))));RaisePins();if(!focus)pointer.BringToFront();}
+      if(spot!=null){spot.Focus(new Point(p.X,p.Y),Math.Max(8,(int)Math.Round(focusRadius/zoom)));RaisePins();if(!focus)pointer.BringToFront();}
       // 트레이 글씨는 셸에 알림을 보내는 호출이다. 바뀔 때만 건드린다.
-      string wanted=(!onPrimary&&zoom>1.01f)
-        ? "다있쌤 · 확대는 주 모니터에서만 됩니다 · 집중 모드와 핀은 이 화면에서도 됩니다"
-        : "다있쌤 "+zoom.ToString("0.0")+"×"+(focus?" · 집중":"")+" · Esc 종료 · "+combos["focus"].Label+" 집중";
+      string wanted="다있쌤 "+zoom.ToString("0.0")+"×"+(focus?" · 집중":"")+" · Esc 종료 · "+combos["focus"].Label+" 집중";
       if(trayText!=wanted){trayText=wanted;tray.Text=wanted;}
     }
     void Stop(){
