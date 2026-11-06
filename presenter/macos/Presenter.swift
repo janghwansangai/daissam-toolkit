@@ -158,7 +158,9 @@ final class LiveView: NSView {
         }
         let state=String(format:"%.1f×",Double(scale))+(focus ? " · 집중 모드" : "")
         let keys=(scale > 1 || focus) ? "Esc 원래대로" : "Esc 발표 종료"
-        let hud=" \(state)   ⌃⌥휠 확대 · ⌃⌥⇧휠 원 크기 · \(focusLabel) 집중 모드 · \(keys) "
+        // 원 크기는 집중 모드의 밝은 원만 휠로 바뀐다. 발표 모드에서 ⌃⌥⇧휠은 확대라 안내가 틀렸다(사용자 보고).
+        let wheel=focus ? "⌃⌥휠 확대 · ⌃⌥⇧휠 원 크기" : "⌃⌥휠 확대"
+        let hud=" \(state)   \(wheel) · \(focusLabel) 집중 모드 · \(keys) "
         hud.draw(at:NSPoint(x:24,y:24),withAttributes:[.font:NSFont.boldSystemFont(ofSize:15),.foregroundColor:NSColor.white,.backgroundColor:NSColor.black.withAlphaComponent(0.78)])
     }
 }

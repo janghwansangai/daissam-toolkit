@@ -345,3 +345,17 @@ v0.41.0 요청(자동 백업 명령 다섯 가지) **처리됨.** 검토 결함 
 https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWSVU5qE5_gUh3bNUskBhHDlXH6FskvA/exec?app=daissam-toolkit&v=<Presenter.Ver>&where=<URL 인코딩한 "윈도우 발표 도우미 · 트레이">
 ```
 를 `Process.Start(new ProcessStartInfo{FileName=url,UseShellExecute=true})` 로 연다(v · where 는 `Uri.EscapeDataString`). 맥 쪽 구현은 `Presenter.swift` `reportBug()`. 버전은 맥 세션이 올린다.
+
+## v0.45.2 — 요청: 보조 모니터에서도 화면 확대(R-0002, 사용자 보고)
+
+사용자 보고(2026-11-06, Chrome 156 · Windows 10/11): 보조 모니터에서 발표 모드를 켜고 Ctrl+Alt+휠을 돌려도 확대되지 않는다. 주 모니터에서는 된다.
+
+**원인(코드로 확인):** `UpdateView()` 가 `here.Primary` 가 아니면 `applied=1f` 로 둔다. v0.25.0 기록대로 `MagSetFullscreenTransform` 이 주 모니터만 키우기 때문이다. 고장이 아니라 지금 구조의 한계다(트레이에 ‘확대는 주 모니터에서만 됩니다’ 라고만 알린다). 휠로 올린 `zoom` 값은 그대로 남는다.
+
+**맥 세션이 고치지 않은 까닭:** `Presenter.cs` 는 윈도우 세션 소유이고, 맥에서는 빌드만 되고 실행 검증이 안 된다.
+
+**부탁(실기기, 두 모니터):**
+1. 지금 Windows 판에서 `MagSetFullscreenTransform` 이 보조 모니터에 정말 듣지 않는지 먼저 다시 잰다(기록이 v0.25.0 이다).
+2. 안 들으면 보조 모니터용 확대 창을 만든다 — 맥 오버레이와 같은 방식. 예: 그 모니터 크기의 맨 위 · 입력 통과 창(`WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_TOPMOST|WS_EX_NOACTIVATE`) 안에 `WC_MAGNIFIER` 컨트롤을 두고 `MagSetWindowTransform` · `MagSetWindowSource` 로 커서 고정 확대(원본 왼쪽 위 = 모니터 왼쪽 위 + (커서 − 모니터 왼쪽 위)×(1−1/zoom)). 자기 창이 다시 비치지 않게 제외(`MagSetWindowFilterList`)하고 포인터 원 · 집중 모드 · 핀과 겹침 순서를 맞춘다.
+3. 커서가 모니터를 옮길 때 주 모니터 전체 화면 확대와 보조 모니터 창이 서로 풀리고 켜지는지, 발표 종료 · Esc 때 모두 원래대로 돌아오는지 확인한다.
+4. 9장 형식으로 PR 에 남긴다. 버전은 맥 세션이 올린다. 맥 쪽에는 열려 있는 PR #8(트레이 ‘오류 신고…’)도 함께 합쳐야 한다.

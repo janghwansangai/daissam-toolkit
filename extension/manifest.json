@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "다있쌤",
-  "version": "0.44.0",
+  "version": "0.45.2",
   "description": "프로필 오사용 방지, 동기화 메모, 폴더 북마크, 발표 도우미, 수업 유틸리티",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -55,6 +55,16 @@
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "sidetab.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "commands": {

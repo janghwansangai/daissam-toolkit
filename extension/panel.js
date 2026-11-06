@@ -375,10 +375,28 @@ event('clip-toggle','change',async()=>{
   try{await api('clip-toggle',{on});}finally{await loadClip();}
   if(on)notice('켠 뒤에 복사하거나 캡처한 내용만 가져옵니다. 비밀번호 같은 민감한 내용이 클립보드에 들어오면 그대로 메모에 남습니다.');
 });
+// 서비스 워커가 끊긴 순간(꺼지는 중 · 충돌 · 업데이트)에 보낸 저장은 답 없이 실패한다. 화면에는 글이 남아 있어 저장된 줄 알고
+// 사이드바를 닫으면 메모가 통째로 사라졌다(사용자 보고, 재현: 저장 순간에 끊으면 40번 중 8번). 같은 글을 다시 보내도 결과가
+// 같으므로 곧 다시 보낸다. 다시 보낸 옛 글이 새 글을 덮지 않게 저장은 한 줄로 세우고, 글은 부른 순간의 것을 그대로 보낸다.
+const LINK_LOST=/message channel closed|message port closed|Receiving end does not exist|Could not establish connection|확장에 연결할 수 없습니다/i;
+let saveChain=Promise.resolve(),saveBroken=false;
 async function saveNote(){
   if(!currentNoteId||secretCovered())return;
   if(!$('note-title').value.trim())$('note-title').value=stampTitle();
-  const saved=await api('note-save',{id:currentNoteId,title:$('note-title').value,text:$('note').value,tag:windowTag});
+  const id=currentNoteId,data={id,title:$('note-title').value,text:$('note').value,tag:windowTag};
+  const job=saveChain.then(async()=>{
+    for(let tries=0;;tries++){
+      try{const saved=await api('note-save',data);saveBroken=false;return saved;}
+      catch(error){
+        if(!LINK_LOST.test(String(error?.message)))throw error;
+        if(tries>=3){saveBroken=true;throw new Error('메모를 저장하지 못했습니다. 글은 아직 화면에만 있으니 사이드바를 닫지 말고 잠시 뒤 다시 입력해 주세요.');}
+        await new Promise(resolve=>setTimeout(resolve,300));
+      }
+    }
+  });
+  saveChain=job.catch(()=>{});
+  const saved=await job;
+  if(id!==currentNoteId)return;      // 저장을 기다리는 사이 다른 메모로 옮겼다
   myRevision=saved?.revision||'';
   unsavedNote=false;$('note-status').textContent='이 기기에 저장 · 동기화 대기';
 }
@@ -2179,3 +2197,78 @@ function reportURL(){
 event('report-bug','click',()=>chrome.tabs.create({url:reportURL()}));
 event('report-settings','click',()=>chrome.tabs.create({url:reportURL()}));
 
+
+// ── 자동 숨김(v0.45.0) ─────────────────────────────────────────────────────
+// 켜 두면 마우스가 사이드바 밖으로 나가고 0.7초가 지나면 사이드바를 닫는다. 페이지 오른쪽 끝의 책갈피(sidetab.js)를 누르면
+// 다시 열린다 — Chrome 은 ‘누름’ 없이 사이드바를 열어 주지 않아, 마우스를 올리기만 해서는 열 수 없다.
+// 닫지 않는 때: 작은 창(PIN 등)이 떠 있음 · 방금 글을 치는 중(1.5초, 한글 조합도 침으로 본다) · 마우스 단추를 누른 채 · 파일 고르기 창 ·
+// 오른쪽 클릭 메뉴 · 처음 화면/잠금 화면 · 지금 탭에 책갈피가 뜰 수 없음(새 탭 · Chrome 설정 · 웹 스토어 등 — 그때 닫으면
+// 되돌아올 길이 확장 아이콘뿐이다 — 그 까닭을 알리고, 웹 페이지 탭으로 옮기면 그때 숨는다). 사이드바로 열린 때만 한다(탭이나 잠금 해제 창으로 열면 하지 않는다).
+// 한글 조합 중(imeOn)을 ‘바쁨’ 으로 두지 말 것: 맥 한글 입력은 다음 글자를 칠 때까지 마지막 글자를 조합 중으로 두어, 메모에 한글을
+// 치고 마우스를 빼면 영영 숨지 않았다(v0.45.0 사용자 보고 · 재현). 조합도 ‘치는 중’ 이므로 typedAt 만 새로 한다.
+const HIDE_AFTER=700;
+let autoHide=false,sideWindow=null,outside=false,hideTimer=0,typedAt=0,pressed=false,menuOpen=false,holdUntil=0,sideWhyShown='';
+function sideBusy(){
+  return !!document.querySelector('dialog[open]')||$('workspace').hidden||pressed||menuOpen||Date.now()<holdUntil||Date.now()-typedAt<1500;
+}
+function sideSchedule(ms=HIDE_AFTER){
+  clearTimeout(hideTimer);
+  if(autoHide&&sideWindow!==null&&outside)hideTimer=setTimeout(()=>sideHide().catch(()=>{}),ms);
+}
+async function sideBookmarkReady(){
+  const [tab]=await chrome.tabs.query({active:true,windowId:sideWindow});
+  if(!tab?.id)return false;
+  try{return (await chrome.tabs.sendMessage(tab.id,{type:'side-tab-ping'},{frameId:0}))===true;}catch{return false;}
+}
+async function sideHide(){
+  if(!autoHide||sideWindow===null||!outside)return;
+  if(sideBusy()){sideSchedule(500);return;}          // 바쁜 일이 끝나고도 마우스가 밖에 있으면 그때 숨는다
+  if(!(await sideBookmarkReady())){
+    const why='이 탭(새 탭 · Chrome 설정 등)에는 책갈피를 띄울 수 없어 사이드바를 숨기지 않습니다. 웹 페이지 탭으로 옮기면 숨습니다.';
+    if(outside&&autoHide&&sideWhyShown!==why){sideWhyShown=why;notice(why);}
+    return;
+  }
+  if(!outside||!autoHide)return;
+  if(sideWhyShown&&$('notice').textContent===sideWhyShown)notice();
+  flushNote();
+  // 저장이 끝나기 전에 닫으면 다시 보낼 곳이 없어진다. 끝내 저장하지 못했으면 글을 잃지 않게 숨지 않는다.
+  await Promise.race([saveChain,new Promise(resolve=>setTimeout(resolve,2500))]);
+  if(saveBroken)return;
+  // 서비스 워커가 다른 일로 바빠도 숨기를 미루지 않는다 — 닫힘은 Chrome(onClosed) · pagehide 로도 전해진다.
+  await Promise.race([chrome.runtime.sendMessage({type:'side-panel',open:false,windowId:sideWindow}).catch(()=>{}),new Promise(resolve=>setTimeout(resolve,400))]);
+  window.close();
+}
+document.documentElement.addEventListener('mouseleave',e=>{outside=true;pressed=(e.buttons&1)===1;sideSchedule();});
+document.documentElement.addEventListener('mouseenter',e=>{outside=false;menuOpen=false;pressed=(e.buttons&1)===1;clearTimeout(hideTimer);});
+document.addEventListener('mousedown',()=>{pressed=true;menuOpen=false;},true);
+document.addEventListener('mouseup',()=>{pressed=false;},true);
+document.addEventListener('keydown',()=>{typedAt=Date.now();menuOpen=false;},true);
+for(const type of ['compositionstart','compositionupdate','compositionend'])document.addEventListener(type,()=>{typedAt=Date.now();},true);
+document.addEventListener('contextmenu',()=>{menuOpen=true;},true);
+document.addEventListener('click',e=>{if(e.target?.closest?.('input[type=file]'))holdUntil=Date.now()+120000;},true);
+document.addEventListener('change',e=>{if(e.target?.type==='file')holdUntil=0;},true);
+window.addEventListener('focus',()=>{holdUntil=0;});
+(async()=>{
+  try{autoHide=(await chrome.storage.local.get('sideAutoHide')).sideAutoHide===true;}catch{}
+  $('auto-hide').checked=autoHide;
+  if(await chrome.tabs.getCurrent())return;            // 탭으로 연 사이드바 화면(시험 · 잠금 해제 창)
+  sideWindow=(await chrome.windows.getCurrent()).id;
+  // 책갈피를 띄울 수 없는 탭에 있다가 웹 페이지 탭으로 옮기면, 마우스가 밖에 있는 한 그때 숨는다.
+  chrome.tabs.onActivated.addListener(info=>{if(info.windowId===sideWindow){sideWhyShown='';sideSchedule();}});
+  chrome.tabs.onUpdated.addListener((tabId,change,tab)=>{if(change.status==='complete'&&tab.active&&tab.windowId===sideWindow)sideSchedule();});
+  // 이 창에 사이드바가 열렸다고 알린다 — 그 창의 책갈피가 숨는다. 닫힐 때도 알린다(✕ 로 닫아도).
+  api('side-panel',{open:true,windowId:sideWindow}).catch(()=>{});
+  window.addEventListener('pagehide',()=>{chrome.runtime.sendMessage({type:'side-panel',open:false,windowId:sideWindow}).catch(()=>{});});
+})().catch(()=>{});
+event('auto-hide','change',async()=>{
+  autoHide=$('auto-hide').checked;
+  if(!autoHide)clearTimeout(hideTimer);
+  if(sideWindow!==null)await api('side-panel',{open:true,windowId:sideWindow}).catch(()=>{});
+  await api('side-auto',{on:autoHide});                 // 저장하고 모든 탭의 책갈피에 알린다
+  notice(autoHide?'자동 숨김을 켰습니다. 마우스가 사이드바를 벗어나면 숨고, 화면 오른쪽 끝의 책갈피를 누르면 다시 나옵니다(책갈피는 위아래로 끌어 옮길 수 있어요).':'자동 숨김을 껐습니다.');
+});
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area!=='local'||!changes.sideAutoHide)return;
+  autoHide=changes.sideAutoHide.newValue===true;$('auto-hide').checked=autoHide;
+  if(!autoHide)clearTimeout(hideTimer);
+});
