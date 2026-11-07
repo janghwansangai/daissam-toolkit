@@ -1,0 +1,80 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>stage</title><style>
+@font-face{font-family:P;src:url(font.woff2) format('woff2');font-weight:100 900}
+*{box-sizing:border-box;margin:0}html,body{width:2560px;height:1440px;overflow:hidden;background:#0d221c;font-family:P,'Apple SD Gothic Neo',sans-serif;color:#fff;word-break:keep-all}
+#bg{position:absolute;inset:0;background:radial-gradient(1800px 900px at 25% 0%,#1c4a3f 0%,#112e27 55%,#0b1f1a 100%)}
+#screen{position:absolute;left:120px;top:20px;width:2320px;height:1305px;border-radius:18px;overflow:hidden;background:#111;box-shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}
+#screen img{position:absolute;left:0;top:0;width:2560px;height:1440px;transform-origin:0 0;will-change:transform,opacity}
+#ring{position:absolute;border:6px solid #ff8a3d;border-radius:14px;box-shadow:0 0 0 4px rgba(255,138,61,.28),0 0 34px rgba(255,138,61,.55);display:none}
+#tag{position:absolute;background:#ff8a3d;color:#22140a;font-weight:800;font-size:32px;padding:9px 20px;border-radius:12px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.35);display:none}
+#ripple{position:absolute;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;border:6px solid #ff8a3d;display:none}
+#cursor{position:absolute;width:46px;height:60px;margin:-3px 0 0 -6px;display:none;filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))}
+#card{position:absolute;inset:0;opacity:0;background:linear-gradient(135deg,#173b36,#10302a 60%,#0c251f);padding:96px 130px;display:flex;flex-direction:column;justify-content:center}
+#card .kick{font-size:40px;color:#dff39c;font-weight:700;margin-bottom:18px}
+#card h1{font-size:112px;font-weight:800;letter-spacing:-2px;line-height:1.15}
+#card h2{font-size:74px;font-weight:800;letter-spacing:-1px;margin-bottom:46px;line-height:1.2}
+#card .sub{font-size:50px;color:#c2dcc6;margin-top:26px}
+#card ul{list-style:none;padding:0;display:grid;gap:22px}
+#card li{font-size:46px;line-height:1.35;padding:20px 30px;border-radius:18px;background:rgba(255,255,255,.06);display:flex;gap:26px;align-items:center}
+#card li b{flex:none;width:68px;height:68px;border-radius:50%;background:#dff39c;color:#16342b;display:grid;place-content:center;font-size:38px}
+#card li.on{background:#dff39c;color:#16342b;font-weight:700}#card li.on b{background:#16342b;color:#dff39c}
+#card ul.two{grid-template-columns:1fr 1fr}#card ul.two li{font-size:40px}
+#card .note{font-size:36px;color:#c2dcc6;margin-top:34px}
+#card .draw{position:absolute;right:44px;top:36px;font-size:30px;color:#16342b;background:#dff39c;padding:8px 20px;border-radius:999px;font-weight:700}
+#card .mark{font-size:120px;color:#dff39c;line-height:1;margin-bottom:26px}
+#sub{position:absolute;left:150px;right:150px;top:1329px;height:100px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:42px;font-weight:600;line-height:1.24;text-shadow:0 2px 4px rgba(0,0,0,.5)}
+#bar{position:absolute;left:0;bottom:0;height:6px;background:#dff39c;width:0}
+</style></head><body><div id="bg"></div>
+<div id="screen"><img id="a"><img id="b"><div id="card"></div><div id="ring"></div><div id="tag"></div><div id="ripple"></div>
+<svg id="cursor" viewBox="0 0 24 32"><path d="M2 2v23l6-6 4 10 5-2-4-10h8z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+<div id="sub"></div><div id="bar"></div>
+<script>
+const W=2320/2560,SW=2320,SH=1305;let T=null;const $=i=>document.getElementById(i);
+const ease=u=>{u=Math.min(1,Math.max(0,u));return u*u*(3-2*u)};const lerp=(a,b,u)=>a+(b-a)*u;
+function view(b){ // 이미지 안에서 보이는 자리
+  const z=b.z||1;if(z<=1||!b.box)return {x:0,y:0,z:1};
+  const w=2560/z,h=1440/z,cx=b.box[0]+b.box[2]/2,cy=b.box[1]+b.box[3]/2;
+  return {x:Math.min(2560-w,Math.max(0,cx-w/2)),y:Math.min(1440-h,Math.max(0,cy-h/2)),z};
+}
+function place(img,v,op){img.style.transform=`scale(${W*v.z}) translate(${-v.x}px,${-v.y}px)`;img.style.opacity=op;}
+const cache=new Map();
+function load(src){if(!src)return Promise.resolve();if(cache.has(src))return cache.get(src);const i=new Image();i.src=src;const p=i.decode().then(()=>i);cache.set(src,p);if(cache.size>40)cache.delete(cache.keys().next().value);return p;}
+window.setup=d=>{T=d;for(const b of T.beats)b.v=view(b);};
+let lastCard='';
+function card(c){const k=JSON.stringify(c);if(k===lastCard)return;lastCard=k;const el=$('card');
+  if(!c){el.innerHTML='';return;}
+  const num=(x,i)=>`<li class="${c.mark===i?'on':''}"><b>${i+1}</b><span>${x}</span></li>`;
+  if(c.kind==='title')el.innerHTML=`<div class="mark">✳</div><h1>${c.title}</h1><div class="sub">${c.sub}</div>`;
+  else if(c.kind==='chapter')el.innerHTML=`<h1>${c.title}</h1><div class="sub">${c.sub}</div>`;
+  else if(c.kind==='list')el.innerHTML=`<h2>${c.title}</h2><ul class="${c.items.length>7?'two':''}">${c.items.map((x,i)=>c.items.length>7?num(x,i):`<li><span>${x}</span></li>`).join('')}</ul>`;
+  else el.innerHTML=`<div class="draw">안내 그림 · 실제 화면이 아닙니다</div><div class="kick">${c.kicker}</div><h2>${c.title}</h2><ul>${c.items.map(num).join('')}</ul>${c.note?`<div class="note">${c.note}</div>`:''}`;
+}
+window.frame=async t=>{
+  const bs=T.beats;let i=bs.findIndex(b=>t<b.end);if(i<0)i=bs.length-1;const b=bs[i],p=bs[i-1],u=t-b.start;
+  const src=b.clip?`clips/${b.clip}/${String(Math.min(b.clipLast,Math.floor((b.clipFrom+u)*30)+1)).padStart(5,'0')}.jpg`:b.shot?`shots/${b.shot}.png`:null;
+  const psrc=p&&p.shot&&!p.clip?`shots/${p.shot}.png`:null;
+  await Promise.all([load(src),load(psrc)]);
+  const A=$('a'),B=$('b');const same=p&&p.shot===b.shot&&!b.clip&&!p.clip;
+  const v0=same?p.v:b.v,mv=ease(u/.75),v={x:lerp(v0.x,b.v.x,mv),y:lerp(v0.y,b.v.y,mv),z:lerp(v0.z,b.v.z,mv)};
+  if(src){if(B.getAttribute('src')!==src)B.src=src;}
+  const hasNow=!!src;
+  // 장면이 바뀌면 앞 장면을 살짝 겹쳐 넘긴다
+  const fade=(!same&&p&&!b.card&&psrc&&psrc!==src)?ease(u/.4):1;
+  if(psrc&&fade<1){if(A.getAttribute('src')!==psrc)A.src=psrc;place(A,p.v,1);A.style.display='';}else A.style.display='none';
+  if(hasNow){place(B,v,b.card?0:fade);B.style.display='';}else B.style.display='none';
+  const C=$('card');card(b.card||null);
+  C.style.opacity=b.card?(p&&p.card?1:ease(u/.35)):0;
+  // 강조 · 이름표 · 커서
+  const R=$('ring'),L=$('tag'),K=$('cursor'),Q=$('ripple');const k=W*v.z;const P=(x,y)=>[(x-v.x)*k,(y-v.y)*k];
+  if(b.box&&b.hl&&!b.card){const [x,y]=P(b.box[0],b.box[1]),w=b.box[2]*k,h=b.box[3]*k,g=ease((u-.45)/.3),pad=8;
+    const pulse=1+.012*Math.sin(Math.min(u,2)*9)*(u<2?1:0);
+    R.style.cssText=`display:block;left:${x-pad}px;top:${y-pad}px;width:${w+pad*2}px;height:${h+pad*2}px;opacity:${g};transform:scale(${pulse})`;
+    if(b.tag){L.textContent=b.tag;L.style.display='block';const lw=L.offsetWidth,lh=L.offsetHeight;let lx=Math.min(SW-lw-14,Math.max(14,x+w/2-lw/2)),ly=y-pad-lh-14;if(ly<12)ly=y+h+pad+14;if(ly+lh>SH-10)ly=Math.max(12,y+8);L.style.left=lx+'px';L.style.top=ly+'px';L.style.opacity=g;}else L.style.display='none';
+  }else{R.style.display='none';L.style.display='none';}
+  const tgt=b.box&&b.hl&&!b.card?[b.box[0]+b.box[2]/2,b.box[1]+b.box[3]/2]:null;
+  if(tgt){const from=b.from||tgt,mc=ease((u-.1)/.75),ix=lerp(from[0],tgt[0],mc),iy=lerp(from[1],tgt[1],mc);const [cx,cy]=P(ix,iy);
+    K.style.cssText=`display:block;left:${cx}px;top:${cy}px;opacity:${ease(u/.2)}`;
+    if(b.click){const c=(u-1.05)/.55;if(c>=0&&c<=1){Q.style.cssText=`display:block;left:${cx}px;top:${cy}px;opacity:${1-c};transform:scale(${1+c*2.6})`;}else Q.style.display='none';}else Q.style.display='none';
+  }else{K.style.display='none';Q.style.display='none';}
+  $('sub').textContent=b.sub;$('bar').style.width=(t/T.total*100)+'%';
+};
+</script></body></html>
