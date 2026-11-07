@@ -14,6 +14,8 @@ const STORE = 'https://chromewebstore.google.com/detail/penklhfehmfoebmeolplklmj
 // 사이트 페이지에만 넣는다(PDF 로 인쇄하는 안내문에는 넣지 않는다 — 떠 있는 단추가 인쇄되지 않게).
 const REPORT = 'https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWSVU5qE5_gUh3bNUskBhHDlXH6FskvA/exec';
 const WIDGET = `<script src="${REPORT}?asset=widget.js" data-app="daissam-toolkit" data-version="${version}" defer></script>`;
+// 소개 영상. 누르기 전에는 사이트 안의 표지 그림만 보이고 YouTube 에 연결하지 않는다(쿠키 · 접속 기록이 생기지 않게).
+const VIDEO = '3e5YovZ21hM';
 const REPORT_PAGE = `${REPORT}?app=daissam-toolkit&v=${encodeURIComponent(version)}&where=${encodeURIComponent('소개 사이트')}`;
 fs.rmSync(OUT, {recursive: true, force: true});
 fs.mkdirSync(OUT + '/img', {recursive: true});
@@ -36,7 +38,7 @@ for (const [name, src, pdf] of guides) {
 await C.stop();
 try { fs.rmSync(tmp, {recursive: true, force: true, maxRetries: 5, retryDelay: 300}); } catch {}
 
-for (const f of ['screenshot-1-memo.png', 'screenshot-2-capture.png', 'screenshot-3-present.png', 'screenshot-4-tools.png', 'icon-128.png'])
+for (const f of ['screenshot-1-memo.png', 'screenshot-2-capture.png', 'screenshot-3-present.png', 'screenshot-4-tools.png', 'icon-128.png', 'video-poster.jpg'])
   fs.copyFileSync('store/' + f, `${OUT}/img/${f}`);
 fs.copyFileSync('extension/fonts/PretendardVariable.woff2', `${OUT}/img/Pretendard.woff2`);
 
@@ -73,11 +75,16 @@ fs.writeFileSync(`${OUT}/index.html`, `<!doctype html><html lang="ko"><title>다
 .f{display:grid;grid-template-columns:1fr 1fr;gap:22px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}.card img{width:100%;display:block}.card div{padding:16px 20px 20px}.card b{font-size:19px}.card p{margin:6px 0 0;color:var(--sub);font-size:15.5px}
 .dl{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}.box h3{margin:0 0 6px;font-size:19px}.box p{color:var(--sub);font-size:15px;margin:0 0 14px}.box a.btn{background:var(--acc);color:#fff}
 @media (prefers-color-scheme:dark){.box a.btn{color:#0f2921}}
+.video{position:relative;aspect-ratio:16/9;border-radius:16px;overflow:hidden;background:#0f2921;border:1px solid var(--line)}.video a,.video iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}.video img{width:100%;height:100%;object-fit:cover;display:block}
+.video span{position:absolute;left:50%;top:50%;width:92px;height:92px;margin:-46px 0 0 -46px;border-radius:50%;background:rgba(15,41,33,.86);color:#fff;display:grid;place-content:center;font-size:36px;padding-left:6px;transition:transform .15s}.video a:hover span,.video a:focus-visible span{transform:scale(1.1);background:#1d4a3a}.video a:focus-visible{outline:3px solid var(--mint);outline-offset:-3px}
+.vnote{color:var(--sub);font-size:15px;margin:10px 0 0}
 .steps{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 28px}.steps li{margin:10px 0}
 @media (max-width:760px){.f,.dl{grid-template-columns:1fr}}</style><body>${nav}
 <header class="hero"><div class="w"><h1>수업에 필요한 것,<br>다 있쌤.</h1><p>메모 · 북마크 · 캡처 · 녹화 · 발표 도구 · 수업 유틸리티를 Chrome 사이드바 하나에. 무료이고, 서버도 회원가입도 없습니다.</p>
 <div class="btns"><a class="btn" href="#download">무료로 내려받기</a><a class="btn o" href="${STORE}" id="store">Chrome 웹 스토어</a><a class="btn o" href="다있쌤-설치안내.pdf">설치 안내 PDF</a></div><div class="ver" id="ver">최신 버전 ${version}</div></div></header>
-<main class="w"><h2>할 수 있는 것</h2><div class="f">${features.map(([img, t, d]) => `<div class="card"><img src="img/${img}" alt="${esc(t)} 화면" loading="lazy"><div><b>${esc(t)}</b><p>${esc(d)}</p></div></div>`).join('')}</div>
+<main class="w"><h2 id="video-title">소개 영상</h2><div class="video"><a id="video" href="https://youtu.be/${VIDEO}" aria-label="다있쌤 소개와 사용법 영상 재생"><img src="img/video-poster.jpg" alt="다있쌤 소개와 사용법 영상" loading="lazy"><span aria-hidden="true">▶</span></a></div>
+<p class="vnote">설치부터 발표 프로그램, 메모, 캡처, 녹화까지 22분으로 안내합니다. <a href="https://youtu.be/${VIDEO}">YouTube에서 보기</a></p>
+<h2>할 수 있는 것</h2><div class="f">${features.map(([img, t, d]) => `<div class="card"><img src="img/${img}" alt="${esc(t)} 화면" loading="lazy"><div><b>${esc(t)}</b><p>${esc(d)}</p></div></div>`).join('')}</div>
 <h2 id="download">내려받기</h2><div class="dl">
 <div class="box"><h3>Chrome 확장</h3><p>확장 + 맥·윈도우 발표 도우미 앱이 모두 든 파일 하나. 압축을 풀고 개발자 모드로 설치합니다.</p><a class="btn" data-asset="browser-sheriff-extension-" href="https://github.com/${REPO}/releases/latest">확장 ZIP 받기</a></div>
 <div class="box"><h3>맥 발표 도우미</h3><p>화면 확대 · 포인터 · 화면 조각 핀. 확장의 발표 탭에서도 받을 수 있습니다.</p><a class="btn" data-asset="browser-sheriff-presenter-macos-" href="https://github.com/${REPO}/releases/latest">맥용 받기</a></div>
@@ -86,6 +93,8 @@ fs.writeFileSync(`${OUT}/index.html`, `<!doctype html><html lang="ko"><title>다
 <h2>설치는 이렇게</h2><ol class="steps"><li>위 <b>확장 ZIP</b> 을 받아 압축을 풀고, 나온 폴더를 문서 폴더처럼 지우지 않을 곳에 둡니다.</li><li>Chrome 주소창에 <b>chrome://extensions</b> → 오른쪽 위 <b>개발자 모드</b> 켜기.</li><li><b>압축해제된 확장 프로그램을 로드</b> → 그 폴더를 고릅니다.</li><li>퍼즐 아이콘에서 다있쌤을 고정하고, 처음 화면에서 이름과 PIN 을 정합니다(잠금이 필요 없으면 <b>PIN 없이 바로 쓰기</b>).</li><li>발표 도구를 쓰려면 사이드바 <b>발표 → 발표 프로그램 다운로드</b> 에서 앱을 받습니다.</li></ol>
 <p>그림과 함께 자세히: <a href="install.html">설치 안내</a> · <a href="다있쌤-설치안내.pdf">PDF</a> &nbsp;|&nbsp; 기능 설명: <a href="guide.html">사용설명서</a> · <a href="다있쌤-사용설명서.pdf">PDF</a></p></main>${foot}
 <script>
+// 누르면 그때 영상을 불러온다. 스크립트가 막히면 링크대로 YouTube 로 간다.
+document.getElementById('video').addEventListener('click',e=>{e.preventDefault();const f=document.createElement('iframe');f.src='https://www.youtube-nocookie.com/embed/${VIDEO}?autoplay=1&rel=0';f.title='다있쌤 소개와 사용법 영상';f.allow='autoplay; encrypted-media; picture-in-picture; fullscreen';f.allowFullscreen=true;f.referrerPolicy='strict-origin-when-cross-origin';e.currentTarget.replaceWith(f);f.focus();});
 // 최신 릴리스의 실제 파일 주소로 단추를 바꾼다. 실패하면 릴리스 페이지로 그대로 간다.
 fetch('https://api.github.com/repos/${REPO}/releases/latest').then(r=>r.ok?r.json():null).then(rel=>{
   if(!rel||!Array.isArray(rel.assets))return;
@@ -95,10 +104,10 @@ fetch('https://api.github.com/repos/${REPO}/releases/latest').then(r=>r.ok?r.jso
 </script></body></html>`);
 // 보안 머리글: http 로 들어와도 브라우저가 https 로만 쓰게(HSTS), 페이지 안의 http 주소는 https 로 올려 불러오게(upgrade-insecure-requests),
 // 불러올 수 있는 곳은 이 사이트 · GitHub 최신 릴리스 조회(api.github.com) · 오류 신고 위젯과 그 전송(script.google.com ·
-// script.googleusercontent.com — Apps Script 는 응답을 이 주소로 넘긴다)뿐이다.
+// script.googleusercontent.com — Apps Script 는 응답을 이 주소로 넘긴다)뿐이다. 소개 영상은 누른 뒤에만 YouTube 개인정보 보호 강화 주소를 틀로 불러온다.
 fs.writeFileSync(`${OUT}/_headers`, `/*
   Strict-Transport-Security: max-age=31536000
-  Content-Security-Policy: upgrade-insecure-requests; default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://script.google.com https://script.googleusercontent.com; connect-src 'self' https://api.github.com https://script.google.com https://script.googleusercontent.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: upgrade-insecure-requests; default-src 'self'; frame-src https://www.youtube-nocookie.com; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://script.google.com https://script.googleusercontent.com; connect-src 'self' https://api.github.com https://script.google.com https://script.googleusercontent.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
