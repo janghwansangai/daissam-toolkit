@@ -10,3 +10,10 @@ test('발표 모드 안내에는 원 크기가 없고, 집중 모드 안내에�
   assert.match(swift,/event\.flags\.contains\(\.maskShift\) && app\.focus/,'안내의 근거: 원 크기 휠은 집중 모드에서만 듣는다');
   assert.doesNotMatch(swift,/let hud=[^\n]*원 크기/,'안내 줄에 원 크기를 그대로 박아 두지 않는다');
 });
+test('윈도우 확대는 모든 모니터에 같은 식을 쓴다 — 주 모니터 갈래가 되살아나지 않는다(R-0002)',()=>{
+  const cs=readFileSync('presenter/windows/Presenter.cs','utf8');
+  const view=cs.slice(cs.indexOf('void UpdateView()'),cs.indexOf('void Stop()'));
+  assert.ok(view.includes('MagSetFullscreenTransform(zoom,x,y)'));
+  assert.doesNotMatch(view,/\.Primary/);
+});
+

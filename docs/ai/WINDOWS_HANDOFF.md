@@ -359,3 +359,5 @@ https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWS
 2. 안 들으면 보조 모니터용 확대 창을 만든다 — 맥 오버레이와 같은 방식. 예: 그 모니터 크기의 맨 위 · 입력 통과 창(`WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_TOPMOST|WS_EX_NOACTIVATE`) 안에 `WC_MAGNIFIER` 컨트롤을 두고 `MagSetWindowTransform` · `MagSetWindowSource` 로 커서 고정 확대(원본 왼쪽 위 = 모니터 왼쪽 위 + (커서 − 모니터 왼쪽 위)×(1−1/zoom)). 자기 창이 다시 비치지 않게 제외(`MagSetWindowFilterList`)하고 포인터 원 · 집중 모드 · 핀과 겹침 순서를 맞춘다.
 3. 커서가 모니터를 옮길 때 주 모니터 전체 화면 확대와 보조 모니터 창이 서로 풀리고 켜지는지, 발표 종료 · Esc 때 모두 원래대로 돌아오는지 확인한다.
 4. 9장 형식으로 PR 에 남긴다. 버전은 맥 세션이 올린다. 맥 쪽에는 열려 있는 PR #8(트레이 ‘오류 신고…’)도 함께 합쳐야 한다.
+
+**처리됨(2026-11-07):** PR #8 을 `main` 에 합쳤다(v0.45.3). `MagSetFullscreenTransform` 이 바탕화면 전체에 듣는다는 윈도우 세션 실측대로 별도 확대 창 없이 끝났다. 맥 쪽 후속(사이드바 · 설치 안내 문장)도 반영했다. 남은 것: 커서가 없는 모니터도 함께 커지는 것(사용자가 원하면 다시 판단), 윈도우 10 실기기 · 사람 손 확인.
