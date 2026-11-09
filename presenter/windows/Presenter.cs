@@ -20,7 +20,6 @@ namespace BrowserSheriff {
     [DllImport("Magnification.dll")] public static extern bool MagInitialize();
     [DllImport("Magnification.dll")] public static extern bool MagUninitialize();
     [DllImport("Magnification.dll")] public static extern bool MagSetFullscreenTransform(float level,int x,int y);
-    [DllImport("Magnification.dll")] public static extern bool MagGetFullscreenTransform(out float level,out int x,out int y);
     [DllImport("Magnification.dll")] public static extern bool MagShowSystemCursor(bool show);
     [DllImport("user32.dll")] public static extern IntPtr SetWindowsHookEx(int type,Hook callback,IntPtr module,uint thread);
     [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hook);
@@ -52,17 +51,33 @@ namespace BrowserSheriff {
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr GetWindowLongPtr(IntPtr window,int index);
     [DllImport("user32.dll",SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr window,int index,IntPtr value);
+    // 모니터별 확대(ZoomLens). MAGTRANSFORM 은 float 3×3 이다.
+    [StructLayout(LayoutKind.Sequential)] public struct MagMatrix {public float M00,M01,M02,M10,M11,M12,M20,M21,M22;}
+    [DllImport("Magnification.dll")] public static extern bool MagSetWindowTransform(IntPtr window,ref MagMatrix matrix);
+    [DllImport("Magnification.dll")] public static extern bool MagSetWindowFilterList(IntPtr window,uint mode,int count,IntPtr[] list);
+    [DllImport("Magnification.dll")] public static extern bool MagSetLensUseBitmapSmoothing(IntPtr window,bool smooth);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern IntPtr CreateWindowEx(uint exStyle,string className,string title,uint style,int x,int y,int wide,int tall,IntPtr parent,IntPtr menu,IntPtr instance,IntPtr param);
+    [DllImport("user32.dll")] public static extern bool InvalidateRect(IntPtr window,IntPtr rect,bool erase);
+    [DllImport("user32.dll")] public static extern bool SetLayeredWindowAttributes(IntPtr window,uint key,byte alpha,uint flags);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int wide,int tall,uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr GetTopWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window,uint command);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);
+    // 훅 전용 실의 메시지 고리.
+    [StructLayout(LayoutKind.Sequential)] public struct Msg {public IntPtr window;public uint message;public IntPtr wParam,lParam;public uint time;public Point pt;public uint reserved;}
+    [DllImport("user32.dll")] public static extern int GetMessage(out Msg message,IntPtr window,uint first,uint last);
+    [DllImport("user32.dll")] public static extern bool PostThreadMessage(uint thread,uint message,IntPtr wParam,IntPtr lParam);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
   }
   sealed class PointerWindow:Form {
-    // MagSetFullscreenTransform magnifies the whole desktop, this window included. Drawing at 1/zoom
-    // keeps the pointer the same size on screen no matter how far the content is zoomed in.
+    // 렌즈(ZoomLens)는 이 창을 빼고 확대하고 이 창은 렌즈 위에 있으므로, 포인터는 배율과 상관없이 늘 같은 크기다.
     // 예전에는 TransparencyKey 로 분홍색을 투명하게 만들었다. 그 방식은 화면 합성에 기대는데,
     // VMware 같은 가상 디스플레이 드라이버에서는 합성이 빠져 분홍색이 그대로 칠해진다. 그래서
     // 포인터 자리에 속이 꽉 찬 분홍 원이 생기고 아래가 안 보였다. 이제 창 모양(Region)을
     // 고리로 깎는다. 가운데는 창 자체가 없으므로 어느 드라이버에서도 그냥 아래가 보이고,
     // 클릭도 지나간다. 색 키에 기대지 않는다.
     public const int Diameter0=104;
-    float shrink=1;
     int span=Diameter0;
     Color ink=Color.FromArgb(222,243,155);
     // WS_EX_LAYERED 를 단 창은 SetLayeredWindowAttributes 를 한 번은 불러 줘야 화면에 나온다.
@@ -78,16 +93,8 @@ namespace BrowserSheriff {
         span=wanted;Refit();
       }
     }
-    public float Shrink {
-      get{return shrink;}
-      set{
-        float wanted=Math.Max(.25f,Math.Min(1f,value));
-        if(Math.Abs(shrink-wanted)<0.005f)return;
-        shrink=wanted;Refit();
-      }
-    }
     void Refit(){
-      int side=Math.Max(10,(int)Math.Ceiling(span*shrink));
+      int side=Math.Max(10,span);
       if(Width!=side)Size=new Size(side,side);
       Carve();Invalidate();
     }
@@ -120,8 +127,58 @@ namespace BrowserSheriff {
     // Region 이 이미 고리 밖을 잘라내므로, 배경을 고리 색으로 칠하면 그게 곧 고리다.
     protected override void OnPaintBackground(PaintEventArgs e){using(SolidBrush fill=new SolidBrush(ink))e.Graphics.FillRectangle(fill,ClientRectangle);}
   }
+  // 모니터 하나를 덮는 확대 렌즈. 맨 위 · 입력 통과 창 안에 Magnifier 컨트롤을 두고 그 모니터 영역만 키운다.
+  // PowerToys ZoomIt 의 라이브 줌과 같은 구조다(MIT). 예전의 MagSetFullscreenTransform 은 바탕화면 전체에
+  // 배율 하나를 걸어 다른 모니터까지 함께 커졌고, ZoomIt 주석대로 UIAccess 없이는 일부 입력이 엉뚱한 곳으로 간다.
+  // 창 방식에서는 실제 창은 제자리이고 그림만 커지므로 클릭은 커서 밑의 진짜 창으로 그대로 내려간다.
+  sealed class ZoomLens:Form {
+    public readonly Rectangle Area;
+    public float Level=1;
+    IntPtr lens=IntPtr.Zero;
+    float shownLevel=-1;int shownX=int.MinValue,shownY=int.MinValue;
+    public ZoomLens(Rectangle area){
+      Area=area;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;
+      Bounds=area;BackColor=Color.Black;SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.UserPaint|ControlStyles.Opaque,true);
+    }
+    public bool Ready {get{return lens!=IntPtr.Zero;}}
+    protected override bool ShowWithoutActivation {get{return true;}}
+    // WS_EX_TRANSPARENT|WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW — 클릭 · 휠은 아래 창으로 지나간다.
+    protected override CreateParams CreateParams {get{CreateParams p=base.CreateParams;p.ExStyle|=0x00000020|0x00080000|0x08000000|0x80;return p;}}
+    protected override void OnHandleCreated(EventArgs e){
+      base.OnHandleCreated(e);
+      // 층 창은 이 호출이 있어야 화면에 나온다. MagInitialize 뒤여야 "Magnifier" 창 클래스가 있다.
+      Native.SetLayeredWindowAttributes(Handle,0,255,2);
+      // 화면 캡처에서 뺀다. 안 빼면 Magnifier 창이 캡처에 검게 찍히는 모니터가 있다(실측: 그 모니터 녹화가 100% 검은 화면).
+      // 빼면 녹화에는 확대 전의 진짜 화면이 담긴다.
+      Native.SetWindowDisplayAffinity(Handle,Native.ExcludeFromCapture);
+      lens=Native.CreateWindowEx(0,"Magnifier","다있쌤 확대",0x50000000,0,0,Area.Width,Area.Height,Handle,IntPtr.Zero,Native.GetModuleHandle(null),IntPtr.Zero);
+      if(lens!=IntPtr.Zero)try{Native.MagSetLensUseBitmapSmoothing(lens,true);}catch(EntryPointNotFoundException){}
+    }
+    protected override void OnSizeChanged(EventArgs e){
+      base.OnSizeChanged(e);
+      if(lens!=IntPtr.Zero)Native.SetWindowPos(lens,IntPtr.Zero,0,0,ClientSize.Width,ClientSize.Height,0x0014);   // SWP_NOZORDER|SWP_NOACTIVATE
+    }
+    // 커서 밑의 원본이 그대로 커서 밑에 오게 한다(보이는 것과 클릭되는 것이 같다). 출발점은 늘 이 모니터 안이다 —
+    // 보이는 폭을 올림해야 오른쪽 · 아래 끝에서 모니터 밖을 읽지 않는다(밖을 읽으면 검은 화면이 된다, ZoomIt 주석).
+    public bool Look(float level,Point cursor){
+      if(lens==IntPtr.Zero)return false;
+      int wide=(int)Math.Ceiling(Area.Width/level),tall=(int)Math.Ceiling(Area.Height/level);
+      int x=(int)Math.Round(Area.X+(Math.Max(Area.Left,Math.Min(Area.Right,cursor.X))-Area.X)*(1-1/level));
+      int y=(int)Math.Round(Area.Y+(Math.Max(Area.Top,Math.Min(Area.Bottom,cursor.Y))-Area.Y)*(1-1/level));
+      x=Math.Max(Area.Left,Math.Min(Area.Right-wide,x));
+      y=Math.Max(Area.Top,Math.Min(Area.Bottom-tall,y));
+      if(level==shownLevel&&x==shownX&&y==shownY)return true;
+      Native.MagMatrix m=new Native.MagMatrix{M00=level,M02=-x*level,M11=level,M12=-y*level,M22=1};
+      if(!Native.MagSetWindowTransform(lens,ref m))return false;
+      shownLevel=level;shownX=x;shownY=y;return true;
+    }
+    // 내용이 움직이지 않아도(영상 · 글자 입력) 그림을 새로 받는다. 지우면 깜박이므로 지우지 않는다.
+    public void Repaint(){if(lens!=IntPtr.Zero)Native.InvalidateRect(lens,IntPtr.Zero,false);}
+    // MW_FILTERMODE_EXCLUDE — 포인터 원 · 집중 덮개 · 핀은 렌즈 위에 원래 크기로 있으므로 렌즈 안에 또 그리지 않는다.
+    public void LeaveOut(IntPtr[] windows){if(lens!=IntPtr.Zero)Native.MagSetWindowFilterList(lens,0,windows.Length,windows);}
+  }
   sealed class SpotlightWindow:Form {
-    // MagSetFullscreenTransform exposes no pixels to blur, so focus mode dims the area outside the circle.
+    // 확대 렌즈 위에 놓이는 덮개다. 원 밖을 어둡게 해서 집중시킨다.
     Rectangle hole=Rectangle.Empty;
     public SpotlightWindow(Rectangle screen,double dim){
       FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;
@@ -145,9 +202,7 @@ namespace BrowserSheriff {
     }
   }
   // 화면 조각 핀 (Snipaste 의 붙이기). 잘라낸 그림을 늘 위에 뜨는 작은 창으로 띄운다.
-  // Windows 의 확대는 MagSetFullscreenTransform 이 바탕화면 전체를 키우는 방식이라 핀도 같이
-  // 커진다. PointerWindow 가 1/zoom 으로 그리는 것과 같은 이유로, 핀도 배율만큼 실제 크기를
-  // 줄이고 자리를 옮겨 화면에 보이는 크기와 위치를 일정하게 유지한다.
+  // 확대 렌즈는 핀을 빼고 키우고 핀은 렌즈 위에 있으므로, 확대 중에도 크기와 자리가 그대로다.
   // 조각 위에 그리기. 표시는 그림 좌표로 담는다. 그래야 핀을 키우거나 줄여도 같은 자리에 남고,
   // 굽기(Flatten)할 때 그대로 그려 넣을 수 있다.
   sealed class Mark {
@@ -783,16 +838,7 @@ namespace BrowserSheriff {
       int y=Math.Min(Math.Max(Natural.Y,room.Top-Natural.Height+60),room.Bottom-40);
       Natural=new Rectangle(x,y,Natural.Width,Natural.Height);
     }
-    // 확대 중에는 화면에 보이는 자리가 실제 창 자리와 다르다. 발표 쪽에서 매 프레임 불러 준다.
-    public void Place(float magnify,int offsetX,int offsetY){
-      if(magnify<=1.001f){if(Bounds!=Natural)Bounds=Natural;return;}
-      int w=Math.Max(8,(int)Math.Round(Natural.Width/magnify));
-      int h=Math.Max(8,(int)Math.Round(Natural.Height/magnify));
-      int x=(int)Math.Round(Natural.X/magnify)+offsetX;
-      int y=(int)Math.Round(Natural.Y/magnify)+offsetY;
-      Rectangle wanted=new Rectangle(x,y,w,h);
-      if(Bounds!=wanted)Bounds=wanted;
-    }
+    public void Place(){if(Bounds!=Natural)Bounds=Natural;}
     // 작은 핀에서는 단추가 다 들어가지 않는다. 들어가는 만큼만 그린다.
     Rectangle[] ToolRects(){
       int room=Box.Width-6;
@@ -1532,7 +1578,13 @@ namespace BrowserSheriff {
     NotifyIcon tray;HelpForm help;Label helpBody;PointerWindow pointer;SpotlightWindow spot;
     System.Windows.Forms.Timer timer;
     Native.Hook mouseCallback,keyCallback;IntPtr mouseHook,keyHook;
-    bool active=false,initialized=false;float zoom=1;bool exiting=false;bool focus=false;int focusRadius=170; RegisteredWaitHandle activationWait;
+    bool active=false,initialized=false;bool exiting=false;bool focus=false;int focusRadius=170; RegisteredWaitHandle activationWait;
+    // 모니터마다 렌즈 하나(키는 Screen.DeviceName). 배율도 렌즈가 따로 들고 있어 모니터별로 독립이다.
+    readonly System.Collections.Generic.Dictionary<string,ZoomLens> lenses=new System.Collections.Generic.Dictionary<string,ZoomLens>();
+    IntPtr[] lensLeave=new IntPtr[0];
+    // 저수준 훅 전용 실. Windows 는 콜백이 밀리면 훅을 말없이 떼어 버린다(LowLevelHooksTimeout). 예전에는 UI 실에
+    // 걸고 콜백 안에서 화면까지 고쳐, UI 가 잠깐만 멈춰도 휠 확대가 조용히 죽을 수 있었다. 콜백은 판단만 하고 UI 실로 넘긴다.
+    Thread hookThread;uint hookThreadId=0;
     string ringHex="#deef9b";int ringSpan=104;double focusDim=.55;
     System.Collections.Generic.Dictionary<string,Combo> combos=Keys2.Read("");
     BadgeForm badge;
@@ -1550,15 +1602,16 @@ namespace BrowserSheriff {
     public static string RecorderFile {get{return Path.Combine(Box,"recorder.json");}}
     public static string RecorderButtonFile {get{return Path.Combine(Box,"recorder-button.json");}}
     public static string KeyFile {get{return Path.Combine(Box,"keys.txt");}}
-    // 화면이 그대로면 다시 그리지 않는다. MagSetFullscreenTransform 은 바탕화면 전체를 다시
+    // 화면이 그대로면 다시 그리지 않는다. 창을 옮기는 호출은 바탕화면 전체를 다시
     // 합성하는 무거운 호출이라, 실기기에서는 그래픽 카드가 받아 주지만 가상 머신(VMware 등)
     // 에서는 CPU 가 통째로 떠안는다. 예전에는 16ms 타이머와 마우스 훅이 둘 다 이걸 무조건
     // 불러, 마우스를 가만히 둬도 초당 60번씩 화면을 다시 만들었다.
-    int lastX=int.MinValue,lastY=int.MinValue;float drawnZoom=-1;bool drawnFocus=false;int drawnRadius=-1;
+    int lastX=int.MinValue,lastY=int.MinValue;bool drawnFocus=false;int drawnRadius=-1;
     bool viewDirty=true;string trayText="";
     void Redraw(){viewDirty=true;UpdateView();}
     readonly System.Collections.Generic.List<PinForm> pins=new System.Collections.Generic.List<PinForm>();
-    SnipForm snipper;float snipZoom=1;bool snipFocus=false;int lastOffX=0,lastOffY=0;
+    // snipping: 조각 창이 뜨기 전 화면을 찍는 동안(DoEvents 가 도는 틈)에도 렌즈가 되살아나지 않게 막는다.
+    SnipForm snipper;bool snipFocus=false,snipping=false;
     const int MaxPins=12;
     // 사이드바의 도크는 확장 -> 네이티브 호스트 -> 이 앱으로 명령을 넘긴다. macOS 는
     // DistributedNotificationCenter 를 쓰지만 Windows 에는 같은 것이 없다. 그래서 이름 있는
@@ -1677,8 +1730,8 @@ namespace BrowserSheriff {
         +"단축키는 사이드바 ‘발표 → 단축키 안내 · 바꾸기’ 에서 바꿉니다.\n"
         +"핀 위에서 휠 크기, Ctrl+휠 투명도, 오른쪽 클릭 메뉴, Esc 닫기.\n"
         +"\n[모니터가 여러 대일 때]\n화면 확대·집중 모드·포인터 원·화면 조각 핀은 모든\n"
-        +"모니터에서 됩니다. 확대는 커서가 있는 곳을 기준으로\n걸리고, Windows 확대는 화면 전체에 걸리므로 다른\n"
-        +"모니터도 함께 커집니다. 화면 녹화·업로드·계정 연결은 없습니다.";
+        +"모니터에서 됩니다. 확대는 커서가 있는 모니터에만 걸리고\n모니터마다 배율이 따로입니다. "
+        +"화면 녹화·업로드·계정 연결은 없습니다.";
     }
     // 사이드바가 보낸 단축키를 받아 둔다. 같은 값이면 안내 글을 다시 만들지 않는다.
     void SetHotkeys(string text){
@@ -1735,29 +1788,119 @@ namespace BrowserSheriff {
     void Start(){
       if(active)return;
       if(!Native.MagInitialize()){MessageBox.Show("확대를 초기화하지 못했습니다. 64비트 Windows 10/11에서 실행하세요.");return;}initialized=true;
-      float existing;int ex,ey;if(!Native.MagGetFullscreenTransform(out existing,out ex,out ey)||existing>1.01f){Native.MagUninitialize();initialized=false;MessageBox.Show("다른 확대 도구를 먼저 종료하세요.");return;}
-      mouseCallback=MouseHook;keyCallback=KeyHook;IntPtr module=Native.GetModuleHandle(null);
-      mouseHook=Native.SetWindowsHookEx(14,mouseCallback,module,0);keyHook=Native.SetWindowsHookEx(13,keyCallback,module,0);
-      if(mouseHook==IntPtr.Zero||keyHook==IntPtr.Zero){Stop();MessageBox.Show("전역 마우스 입력을 연결하지 못했습니다.");return;}
-      pointer=new PointerWindow();pointer.Ink=Colour(ringHex);pointer.Span=ringSpan;pointer.Shrink=1;pointer.Show();active=true;zoom=1;focus=false;
-      lastX=int.MinValue;lastY=int.MinValue;drawnZoom=-1;drawnRadius=-1;viewDirty=true;trayText="";
-      timer=new System.Windows.Forms.Timer{Interval=16};timer.Tick+=delegate{UpdateView();};timer.Start();Native.MagShowSystemCursor(true);UpdateView();PublishState();
+      if(!StartHooks()){Stop();MessageBox.Show("전역 마우스 입력을 연결하지 못했습니다.");return;}
+      pointer=new PointerWindow();pointer.Ink=Colour(ringHex);pointer.Span=ringSpan;pointer.Show();active=true;focus=false;
+      lastX=int.MinValue;lastY=int.MinValue;drawnRadius=-1;viewDirty=true;trayText="";
+      timer=new System.Windows.Forms.Timer{Interval=16};timer.Tick+=delegate{UpdateView();};timer.Start();UpdateView();PublishState();
     }
+    bool StartHooks(){
+      bool ok=false;
+      ManualResetEvent ready=new ManualResetEvent(false);
+      hookThread=new Thread(delegate(){
+        hookThreadId=Native.GetCurrentThreadId();
+        mouseCallback=MouseHook;keyCallback=KeyHook;IntPtr module=Native.GetModuleHandle(null);
+        mouseHook=Native.SetWindowsHookEx(14,mouseCallback,module,0);keyHook=Native.SetWindowsHookEx(13,keyCallback,module,0);
+        ok=mouseHook!=IntPtr.Zero&&keyHook!=IntPtr.Zero;
+        ready.Set();
+        if(ok){Native.Msg waiting;while(Native.GetMessage(out waiting,IntPtr.Zero,0,0)>0){}}
+        if(mouseHook!=IntPtr.Zero){Native.UnhookWindowsHookEx(mouseHook);mouseHook=IntPtr.Zero;}
+        if(keyHook!=IntPtr.Zero){Native.UnhookWindowsHookEx(keyHook);keyHook=IntPtr.Zero;}
+      });
+      hookThread.IsBackground=true;hookThread.Priority=ThreadPriority.AboveNormal;hookThread.Start();
+      ready.WaitOne(3000);
+      return ok;
+    }
+    void StopHooks(){
+      if(hookThread==null)return;
+      Thread gone=hookThread;hookThread=null;
+      Native.PostThreadMessage(hookThreadId,0x0012,IntPtr.Zero,IntPtr.Zero);   // WM_QUIT
+      gone.Join(1000);
+    }
+    // 아래 두 콜백은 훅 전용 실에서 돈다. 판단만 하고 일은 UI 실로 넘긴다 — 여기서 창을 만지면 안 된다.
     IntPtr MouseHook(int code,IntPtr message,IntPtr data){
       // 조각 내기 화면이 떠 있는 동안은 멈춘 그림이라 배율을 바꿀 이유가 없다.
-      if(snipper!=null)return Native.CallNextHookEx(mouseHook,code,message,data);
-      if(code>=0&&active){
-        if(message.ToInt32()==0x020A&&(Native.GetAsyncKeyState(0x11)&0x8000)!=0&&(Native.GetAsyncKeyState(0x12)&0x8000)!=0){
-          Native.Mouse mouse=(Native.Mouse)Marshal.PtrToStructure(data,typeof(Native.Mouse));short delta=(short)(mouse.mouseData>>16);
-          if(focus&&(Native.GetAsyncKeyState(0x10)&0x8000)!=0)focusRadius=Math.Max(70,Math.Min(460,focusRadius+(delta>0?12:-12)));
-          else zoom=Math.Max(1,Math.Min(4,zoom+(delta > 0 ? .1f : -.1f)));
-          UpdateView();return new IntPtr(1);
-        }
-        UpdateView();
-      }return Native.CallNextHookEx(mouseHook,code,message,data);
+      if(code>=0&&active&&snipper==null&&!snipping&&message.ToInt32()==0x020A
+         &&(Native.GetAsyncKeyState(0x11)&0x8000)!=0&&(Native.GetAsyncKeyState(0x12)&0x8000)!=0){
+        Native.Mouse mouse=(Native.Mouse)Marshal.PtrToStructure(data,typeof(Native.Mouse));short delta=(short)(mouse.mouseData>>16);
+        bool shift=(Native.GetAsyncKeyState(0x10)&0x8000)!=0;
+        Dispatch(delegate{Wheel(delta,shift);});
+        return new IntPtr(1);
+      }
+      return Native.CallNextHookEx(mouseHook,code,message,data);
+    }
+    void Wheel(short delta,bool shift){
+      if(!active||snipper!=null||snipping)return;
+      if(focus&&shift){focusRadius=Math.Max(70,Math.Min(460,focusRadius+(delta>0?12:-12)));UpdateView();return;}
+      Native.Point p;if(!Native.GetCursorPos(out p))return;
+      Point at=new Point(p.X,p.Y);Screen here=Screen.FromPoint(at);
+      SetLevel(here,(float)Math.Round(Math.Max(1,Math.Min(4,LevelAt(here)+(delta>0?.1f:-.1f)))*10)/10,at);
+      viewDirty=true;UpdateView();
+    }
+    float LevelAt(Screen where){ZoomLens lens;return lenses.TryGetValue(where.DeviceName,out lens)?lens.Level:1f;}
+    bool AnyZoom(){foreach(ZoomLens lens in lenses.Values)if(lens.Level>1.001f)return true;return false;}
+    void SetLevel(Screen where,float level,Point cursor){
+      ZoomLens lens;
+      if(!lenses.TryGetValue(where.DeviceName,out lens)){
+        if(level<=1.001f)return;
+        lens=new ZoomLens(where.Bounds);
+        IntPtr made=lens.Handle;   // 여기서 창과 Magnifier 컨트롤이 만들어진다
+        if(!lens.Ready){lens.Dispose();Tell("이 화면에서는 확대를 쓸 수 없습니다");return;}
+        lenses[where.DeviceName]=lens;
+        lensLeave=new IntPtr[0];   // 새 렌즈에도 제외 목록을 건넨다
+      }
+      lens.Level=level;
+      if(level<=1.001f){if(lens.Visible)lens.Hide();return;}
+      if(!lens.Look(level,cursor)){lens.Level=1;if(lens.Visible)lens.Hide();Tell("확대에 실패해 원래 크기로 되돌렸습니다");return;}
+      SyncLensLeave();
+      if(!lens.Visible)ShowLens(lens);
+    }
+    // 렌즈를 보이기 전에 새 그림을 받게 하고, 보인 뒤에는 우리 표시들을 렌즈 위로 다시 올린다.
+    void ShowLens(ZoomLens lens){lens.Repaint();lens.Show();RaiseOurs();}
+    void ClearZooms(){foreach(ZoomLens lens in lenses.Values){lens.Level=1;if(lens.Visible)lens.Hide();}}
+    IntPtr[] OverlayWindows(bool withLenses){
+      System.Collections.Generic.List<IntPtr> ours=new System.Collections.Generic.List<IntPtr>();
+      Action<Form> add=delegate(Form form){if(form!=null&&!form.IsDisposed&&form.IsHandleCreated)ours.Add(form.Handle);};
+      add(spot);foreach(PinForm pin in pins)add(pin);add(pointer);add(cameraView);add(badge);
+      if(withLenses)foreach(ZoomLens lens in lenses.Values)add(lens);
+      return ours.ToArray();
+    }
+    void SyncLensLeave(){
+      IntPtr[] wanted=OverlayWindows(true);
+      bool same=wanted.Length==lensLeave.Length;
+      for(int i=0;same&&i<wanted.Length;i++)if(wanted[i]!=lensLeave[i])same=false;
+      if(same)return;
+      lensLeave=wanted;
+      foreach(ZoomLens lens in lenses.Values)lens.LeaveOut(wanted);
+    }
+    // 겹침 순서를 아래에서 위로 다시 쌓는다(덮개 → 핀 → 포인터 → 카메라 → 녹화 표시기). BringToFront 는 창을 활성화하므로 쓰지 않는다.
+    void RaiseOurs(){foreach(IntPtr window in OverlayWindows(false))Native.SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0013);}
+    // 프레임마다: 렌즈 그림을 새로 받고, 다른 프로그램의 맨 위 창(메뉴 · 풍선말)이 렌즈 위로 올라왔으면 되찾는다.
+    // 위에 있는 창을 훑어 낯선 창이 있을 때만 다시 쌓는다. 그래야 평소에는 SetWindowPos 를 부르지 않는다.
+    void KeepLenses(){
+      int shown=0;
+      foreach(ZoomLens lens in lenses.Values)if(lens.Visible){lens.Repaint();shown++;}
+      if(shown==0)return;
+      SyncLensLeave();
+      uint me=(uint)Environment.ProcessId;bool stranger=false;int left=shown;
+      for(IntPtr window=Native.GetTopWindow(IntPtr.Zero);window!=IntPtr.Zero&&left>0&&!stranger;window=Native.GetWindow(window,2)){   // GW_HWNDNEXT
+        if(!Native.IsWindowVisible(window))continue;
+        bool isLens=false;
+        foreach(ZoomLens lens in lenses.Values)if(lens.Visible&&lens.Handle==window)isLens=true;
+        if(isLens){left--;continue;}
+        uint owner;Native.GetWindowThreadProcessId(window,out owner);
+        if(owner!=me)stranger=true;
+      }
+      if(!stranger)return;
+      foreach(ZoomLens lens in lenses.Values)if(lens.Visible)Native.SetWindowPos(lens.Handle,new IntPtr(-1),0,0,0,0,0x0013);
+      RaiseOurs();
+    }
+    void EscapeKey(){
+      if(!active)return;
+      if(AnyZoom()||focus){ClearZooms();SetFocusMode(false);viewDirty=true;UpdateView();}
+      else Stop();
     }
     IntPtr KeyHook(int code,IntPtr message,IntPtr data){
-      if(snipper!=null)return Native.CallNextHookEx(keyHook,code,message,data);
+      if(snipper!=null||snipping)return Native.CallNextHookEx(keyHook,code,message,data);
       if(code>=0&&active&&message.ToInt32()==0x100){
         int key=Marshal.ReadInt32(data);
         // 지금 눌려 있는 수정 키. 정해 둔 것과 **정확히** 같을 때만 우리 단축키로 본다.
@@ -1767,7 +1910,7 @@ namespace BrowserSheriff {
                 |((Native.GetAsyncKeyState(0x12)&0x8000)!=0?2:0)
                 |((Native.GetAsyncKeyState(0x10)&0x8000)!=0?4:0)
                 |((((Native.GetAsyncKeyState(0x5B)|Native.GetAsyncKeyState(0x5C))&0x8000)!=0)?8:0);
-        if(combos["focus"].Matches(mods,key)){ToggleFocus();return new IntPtr(1);}
+        if(combos["focus"].Matches(mods,key)){Dispatch(ToggleFocus);return new IntPtr(1);}
         if(combos["snip"].Matches(mods,key)){Dispatch(BeginSnip);return new IntPtr(1);}
         if(combos["clip"].Matches(mods,key)){Dispatch(PinClipboard);return new IntPtr(1);}
         if(combos["clear"].Matches(mods,key)){Dispatch(ClearPins);return new IntPtr(1);}
@@ -1775,8 +1918,7 @@ namespace BrowserSheriff {
         if(key==0x1B){
           // 핀을 고른 상태의 Esc 는 그 핀 하나만 닫는다. 여기서 삼키면 핀마다 닫을 길이 없다.
           if(Form.ActiveForm is PinForm)return Native.CallNextHookEx(keyHook,code,message,data);
-          if(zoom>1||focus){zoom=1;SetFocusMode(false);UpdateView();}
-          else Stop();
+          Dispatch(EscapeKey);
           return new IntPtr(1);
         }
       }
@@ -1798,9 +1940,10 @@ namespace BrowserSheriff {
     }
     void UpdateView(){
       // 조각을 내는 동안에는 발표 표시를 숨겨 둔다. 여기서 막지 않으면 다음 틱에 도로 올라온다.
-      if(!active||snipper!=null)return;Native.Point p;if(!Native.GetCursorPos(out p))return;
-      if(!viewDirty&&p.X==lastX&&p.Y==lastY&&zoom==drawnZoom&&focus==drawnFocus&&focusRadius==drawnRadius)return;
-      viewDirty=false;lastX=p.X;lastY=p.Y;drawnZoom=zoom;drawnFocus=focus;drawnRadius=focusRadius;
+      if(!active||snipper!=null||snipping)return;Native.Point p;if(!Native.GetCursorPos(out p))return;
+      KeepLenses();
+      if(!viewDirty&&p.X==lastX&&p.Y==lastY&&focus==drawnFocus&&focusRadius==drawnRadius)return;
+      viewDirty=false;lastX=p.X;lastY=p.Y;drawnFocus=focus;drawnRadius=focusRadius;
       // 모니터가 여러 대면 커서가 있는 모니터를 기준으로 삼는다. 예전에는 주 모니터를 벗어나면
       // 확대를 풀고 표시를 숨겨 버려서, 둘째 모니터에서는 아무것도 쓸 수 없었다.
       Screen here=Screen.FromPoint(new Point(p.X,p.Y));
@@ -1808,35 +1951,26 @@ namespace BrowserSheriff {
       // 집중 모드에서는 밝은 원이 이미 포인터 자리를 가리킨다. 포인터 원까지 그리면 두 겹이라 지저분하다.
       if(focus){if(pointer.Visible)pointer.Hide();}
       else if(!pointer.Visible)pointer.Show();
-      Native.MagShowSystemCursor(true);
       if(spot!=null&&!spot.Visible)spot.Show();
       if(spot!=null)spot.Cover(stage);
-      // 전체 화면 확대(MagSetFullscreenTransform)는 주 모니터만이 아니라 바탕화면 전체에 배율
-      // 하나를 건다: 화면 좌표 = (바탕화면 좌표 − 오프셋) × 배율. 주 모니터 왼쪽이면 오프셋이
-      // 음수일 뿐 모든 모니터에 같은 식이다(문서 · 실측 v0.45.2). 예전에는 ‘주 모니터만 키운다’ 는
-      // v0.25.0 기록을 믿고 다른 모니터에서 배율을 1로 묶어, 보조 모니터 확대가 막혀 있었다(R-0002).
-      // 아래 오프셋이면 p 는 제자리이고, p 가 든 모니터에는 그 모니터 안쪽만 보인다(위 식을 풀면
-      // 보이는 범위가 모니터 양 끝과 p 사이의 내분점이라 밖으로 나갈 수 없다). p 가 모니터를
-      // 건너가도 오프셋이 이어지므로 화면이 튀지 않는다. 다른 모니터도 같은 배율로 함께 커진다.
-      // Mouse-anchored crop: source point under the displayed pointer remains p.
-      int x=(int)Math.Round(p.X*(1-1/zoom));
-      int y=(int)Math.Round(p.Y*(1-1/zoom));
-      if(!Native.MagSetFullscreenTransform(zoom,x,y)){Stop();MessageBox.Show("확대에 실패하여 원래 화면으로 복원했습니다.");return;}
-      lastOffX=x;lastOffY=y;PlacePins();
-      pointer.Shrink=1/zoom;pointer.Location=new Point(p.X-pointer.Half,p.Y-pointer.Half);
-      // The overlay is magnified too, so shrink the hole by the same factor to keep it constant on screen.
-      if(spot!=null){spot.Focus(new Point(p.X,p.Y),Math.Max(8,(int)Math.Round(focusRadius/zoom)));RaisePins();if(!focus)pointer.BringToFront();}
+      // 커서가 있는 모니터의 렌즈만 커서를 따라간다. 다른 모니터의 렌즈는 배율과 보던 자리를 그대로 둔다(모니터별 독립).
+      float zoom=LevelAt(here);ZoomLens lens;
+      if(zoom>1.001f&&lenses.TryGetValue(here.DeviceName,out lens))lens.Look(zoom,new Point(p.X,p.Y));
+      pointer.Location=new Point(p.X-pointer.Half,p.Y-pointer.Half);
+      if(spot!=null){spot.Focus(new Point(p.X,p.Y),focusRadius);RaisePins();if(!focus)pointer.BringToFront();}
       // 트레이 글씨는 셸에 알림을 보내는 호출이다. 바뀔 때만 건드린다.
       string wanted="다있쌤 "+zoom.ToString("0.0")+"×"+(focus?" · 집중":"")+" · Esc 종료 · "+combos["focus"].Label+" 집중";
       if(trayText!=wanted){trayText=wanted;tray.Text=wanted;}
     }
     void Stop(){
-      active=false;zoom=1;if(timer!=null){timer.Stop();timer.Dispose();timer=null;}
-      if(mouseHook!=IntPtr.Zero){Native.UnhookWindowsHookEx(mouseHook);mouseHook=IntPtr.Zero;}if(keyHook!=IntPtr.Zero){Native.UnhookWindowsHookEx(keyHook);keyHook=IntPtr.Zero;}
-      if(initialized){Native.MagSetFullscreenTransform(1,0,0);Native.MagShowSystemCursor(true);Native.MagUninitialize();initialized=false;}
+      active=false;if(timer!=null){timer.Stop();timer.Dispose();timer=null;}
+      StopHooks();
+      // 렌즈는 MagUninitialize 전에 치운다. 그 뒤에는 Magnifier 창 클래스가 사라진다.
+      foreach(ZoomLens lens in lenses.Values){lens.Close();lens.Dispose();}lenses.Clear();lensLeave=new IntPtr[0];
+      if(initialized){Native.MagUninitialize();initialized=false;}
       if(pointer!=null){pointer.Close();pointer.Dispose();pointer=null;}
       if(spot!=null){spot.Close();spot.Dispose();spot=null;}focus=false;
-      lastOffX=0;lastOffY=0;PlacePins();
+      PlacePins();
       if(tray!=null)tray.Text="다있쌤 · 발표";
       PublishState();
     }
@@ -2048,7 +2182,7 @@ namespace BrowserSheriff {
       return Color.FromArgb((value>>16)&0xff,(value>>8)&0xff,value&0xff);
     }
     // 화면 조각 핀 ------------------------------------------------------------
-    public void PlacePins(){float magnify=active?zoom:1;foreach(PinForm pin in pins)pin.Place(magnify,lastOffX,lastOffY);}
+    public void PlacePins(){foreach(PinForm pin in pins)pin.Place();}
     void RaisePins(){foreach(PinForm pin in pins)pin.BringToFront();}
     public void Forget(PinForm pin){pins.Remove(pin);PublishState();}
     public void ClearPins(){
@@ -2099,7 +2233,7 @@ namespace BrowserSheriff {
       if(image==null)return;
       if(pins.Count>=MaxPins){image.Dispose();MessageBox.Show("핀은 "+MaxPins+"개까지 띄울 수 있습니다. 쓰지 않는 핀을 닫아 주세요.");return;}
       PinForm pin=new PinForm(image,this,centre);
-      pins.Add(pin);pin.Show();pin.Place(active?zoom:1,lastOffX,lastOffY);pin.BringToFront();viewDirty=true;PublishState();
+      pins.Add(pin);pin.Show();pin.Place();pin.BringToFront();viewDirty=true;PublishState();
     }
     void PinClipboard(){
       try{
@@ -2159,9 +2293,10 @@ namespace BrowserSheriff {
       snipSave=save;
       // 모니터를 전부 덮는다. 다른 모니터 위의 앱도 고를 수 있어야 한다(사용자 보고).
       Rectangle area=SystemInformation.VirtualScreen;
-      // 확대 중이면 보이는 자리와 실제 화면이 어긋난다. 조각 내는 동안만 원래 크기로 돌린다.
-      snipZoom=zoom;snipFocus=focus;
-      if(active){zoom=1;SetFocusMode(false);UpdateView();}
+      // 확대 중이면 보이는 자리와 실제 화면이 어긋난다. 조각 내는 동안만 렌즈를 걷는다(배율은 렌즈가 기억한다).
+      snipFocus=focus;snipping=true;
+      foreach(ZoomLens lens in lenses.Values)if(lens.Visible)lens.Hide();
+      if(active)SetFocusMode(false);
       // Windows 는 화면을 그대로 복사하므로 macOS 의 sharingType 처럼 특정 창만 뺄 수 없다.
       // 발표 표시와 기존 핀을 잠시 감춰 조각 그림에 끼어들지 않게 한다.
       if(pointer!=null)pointer.Hide();
@@ -2232,10 +2367,12 @@ namespace BrowserSheriff {
       RestoreAfterSnip();
     }
     void RestoreAfterSnip(){
+      snipping=false;
       foreach(PinForm pin in pins)pin.Show();
       if(!active)return;
-      zoom=snipZoom;if(snipFocus)SetFocusMode(true);
+      if(snipFocus)SetFocusMode(true);
       if(pointer!=null)pointer.Show();
+      foreach(ZoomLens lens in lenses.Values)if(lens.Level>1.001f&&!lens.Visible)ShowLens(lens);
       Redraw();
     }
     void Cleanup(){
@@ -2861,16 +2998,15 @@ namespace BrowserSheriff {
       try{
         magInit=Native.MagInitialize();
         if(magInit){
-          magMove=Native.MagSetFullscreenTransform(1.5f,0,0);
-          Native.MagSetFullscreenTransform(1,0,0);
-          Native.MagShowSystemCursor(true);
+          // 발표 때 쓰는 것과 같은 렌즈를 화면 밖 작은 크기로 만들어 본다. 보이지는 않는다.
+          using(ZoomLens probe=new ZoomLens(new Rectangle(-32000,-32000,64,64))){IntPtr made=probe.Handle;magMove=probe.Ready&&probe.Look(1.5f,new Point(-31990,-31990));}
           Native.MagUninitialize();
         }
       }catch{}
       Line(r,"화면 확대 기능(발표)",magInit&&magMove,
         magInit&&magMove?"이 화면에서 확대가 됩니다."
         :(!magInit?"확대를 초기화하지 못했습니다."
-                  :"확대 초기화는 됐지만 화면 전체 확대가 거부되었습니다.")
+                  :"확대 초기화는 됐지만 확대 창을 만들지 못했습니다.")
         +"\r\n           → 가상 머신(VMware 등)의 화면 드라이버는 이 기능을 지원하지 않는 경우가"
         +"\r\n              많습니다. 이때 발표(확대)는 못 하지만 화면 조각 핀은 정상입니다."
         +"\r\n              VMware 설정에서 3D 그래픽 가속을 켜면 되는 경우가 있습니다.");
@@ -2886,9 +3022,7 @@ namespace BrowserSheriff {
     // 처리되지 않은 예외가 나도 대화상자를 띄우지 않는다. 화면을 사람이 쓸 수 있는 상태로
     // 되돌리고 까닭은 파일로만 남긴다(%LOCALAPPDATA%\BrowserSheriff\error.log).
     static void Guard(Exception why){
-      // 프로세스가 곧 끝나는 경우(AppDomain)에는 UI 실로 넘길 틈이 없다. 배율과 커서는 여기서 직접.
-      try{Native.MagSetFullscreenTransform(1,0,0);}catch{}
-      try{Native.MagShowSystemCursor(true);}catch{}
+      // 렌즈는 앱의 창이라 프로세스가 끝나면 함께 사라진다. 화면에 남는 것이 없다.
       try{if(Presenter.Live!=null)Presenter.Live.Rescue();}catch{}
       Note(why);
     }
