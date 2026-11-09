@@ -114,6 +114,8 @@ final class LiveView: NSView {
     var blurImage: NSImage?
     // 발표 중 화면 왼쪽 아래 안내에 쓴다. 사용자가 바꾼 조합을 그대로 보여 준다.
     var focusLabel="⌃⌥F"
+    // 마우스가 떠난 모니터. 확대한 화면은 계속 보여 주고 포인터 원과 안내 글은 그리지 않는다.
+    var parked = false
     override var isOpaque: Bool { false }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill(); bounds.fill(using: .copy)
@@ -146,6 +148,7 @@ final class LiveView: NSView {
         } else if scale > 1, let sharp = piece {
             sharp.draw(in:place(pieceRect),from:.zero,operation:.copy,fraction:1,respectFlipped:true,hints:hints)
         }
+        if parked { return }
         // The system cursor stays visible; drawing a second arrow is what looked doubled.
         // 집중 모드에서는 큰 원이 이미 포인터 자리를 가리킨다. 포인터 원까지 그리면 두 겹이라 지저분하다.
         if !focus {
@@ -384,6 +387,25 @@ final class CameraPanel: NSPanel {
     }
 }
 
+// 마우스가 떠난 모니터의 화면을 받는 곳. 배율과 보던 자리가 고정이라, 프레임 스레드가 Presenter 의 값을 읽지 않는다.
+final class ParkedFeed: NSObject, SCStreamOutput {
+    weak var view: LiveView?
+    let crop: NSRect, size: NSSize, context: CIContext
+    init(view: LiveView, crop: NSRect, size: NSSize, context: CIContext) { self.view=view; self.crop=crop; self.size=size; self.context=context }
+    func stream(_ stream:SCStream,didOutputSampleBuffer sampleBuffer:CMSampleBuffer,of type:SCStreamOutputType){
+        guard type == .screen,let buffer=sampleBuffer.imageBuffer else{return}
+        let image=CIImage(cvPixelBuffer:buffer)
+        let factor=image.extent.width/max(1,size.width)
+        let pixels=CGRect(x:crop.minX*factor,y:crop.minY*factor,width:crop.width*factor,height:crop.height*factor).integral.intersection(image.extent)
+        guard pixels.width>=1,pixels.height>=1,let cg=context.createCGImage(image,from:pixels) else{return}
+        let covered=NSRect(x:pixels.minX/factor,y:pixels.minY/factor,width:pixels.width/factor,height:pixels.height/factor)
+        DispatchQueue.main.async{[weak self] in
+            guard let view=self?.view else{return}
+            view.piece=NSImage(cgImage:cg,size:covered.size);view.pieceRect=covered;view.needsDisplay=true
+        }
+    }
+}
+struct ParkedStage { let window: NSPanel; let view: LiveView; let stream: SCStream?; let feed: ParkedFeed?; let screen: NSScreen; let scale: CGFloat }
 final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStreamDelegate {
     var status: NSStatusItem!
     var window: NSPanel?
@@ -406,6 +428,8 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
     var screen: NSScreen?
     // 모니터를 옮기는 중인지. 옮기는 데 잠깐 걸리므로 그 사이 또 옮기라고 하면 안 된다.
     var moving=false
+    // 모니터별 확대(윈도우와 같다). 확대한 채 마우스가 떠난 모니터는 여기서 배율과 보던 자리를 그대로 들고 있다.
+    var parked:[CGDirectDisplayID:ParkedStage]=[:]
     var movedAt: CFAbsoluteTime=0
     var generation=0
     let context=CIContext()
@@ -621,8 +645,8 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             if type == .keyDown && event.getIntegerValueField(.keyboardEventKeycode)==53 {
                 // 핀을 고른 상태의 Esc 는 그 핀 하나만 닫는다. 여기서 삼켜 버리면 핀마다 닫을 길이 없다.
                 if NSApp.keyWindow is PinWindow { return Unmanaged.passUnretained(event) }
-                if app.scale>1 || app.focus {
-                    app.scale=1;app.focus=false;app.view?.focus=false;app.updatePointer()
+                if app.scale>1 || app.focus || !app.parked.isEmpty {
+                    app.clearZooms()
                 } else {
                     // The menu bar sits under the overlay, so Esc is the only way out while presenting.
                     DispatchQueue.main.async { app.stopAction() }
@@ -663,8 +687,14 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         guard let next=NSScreen.screens.first(where:{$0.frame.contains(point)}),
               let number=next.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
               number.uint32Value != displayID else { return false }
-        moving=true; movedAt=CFAbsoluteTimeGetCurrent()
+        movedAt=CFAbsoluteTimeGetCurrent()
         generation+=1; let token=generation
+        parkCurrent()
+        if let back=parked.removeValue(forKey:number.uint32Value) {
+            resume(back,display:number.uint32Value); updatePointer(); return true
+        }
+        scale=1          // 처음 가는 모니터는 원래 크기에서 시작한다
+        moving=true
         Task { @MainActor in
             defer { moving=false; movedAt=CFAbsoluteTimeGetCurrent() }
             do { try await attach(to:next,token:token) }
@@ -674,6 +704,40 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
         }
         return true
     }
+    // 확대한 모니터에서 마우스가 떠날 때: 창과 캡처를 그대로 두고 배율과 보던 자리를 고정한다. 1배면 둘 것이 없다(attach 가 치운다).
+    func parkCurrent(){
+        guard scale>1.001,let window=window,let view=view,let screen=screen else{return}
+        let size=screen.frame.size
+        let crop=NSRect(x:view.pointer.x*(1-1/scale),y:view.pointer.y*(1-1/scale),width:size.width/scale,height:size.height/scale).intersection(NSRect(origin:.zero,size:size))
+        view.parked=true;view.focus=false;view.blurImage=nil;view.scale=scale;view.needsDisplay=true
+        var feed: ParkedFeed?=nil
+        if let live=stream {
+            let made=ParkedFeed(view:view,crop:crop,size:size,context:context)
+            try? live.removeStreamOutput(self,type:.screen)
+            try? live.addStreamOutput(made,type:.screen,sampleHandlerQueue:frameQueue)
+            feed=made
+        }
+        parked[displayID]=ParkedStage(window:window,view:view,stream:stream,feed:feed,screen:screen,scale:scale)
+        self.window=nil;self.view=nil;self.stream=nil
+    }
+    // 확대해 둔 모니터로 마우스가 돌아왔을 때. 이미 돌고 있으므로 곧바로 이어진다.
+    func resume(_ stage: ParkedStage, display: CGDirectDisplayID){
+        window?.vanish()
+        if let old=stream { Task{try? await old.stopCapture()} }
+        window=stage.window;view=stage.view;stream=stage.stream;screen=stage.screen;displayID=display;scale=stage.scale
+        stage.view.parked=false;stage.view.focus=focus
+        if let live=stage.stream,let feed=stage.feed {
+            try? live.removeStreamOutput(feed,type:.screen)
+            try? live.addStreamOutput(self,type:.screen,sampleHandlerQueue:frameQueue)
+        }
+        lastFrame=CFAbsoluteTimeGetCurrent();stage.window.orderFrontRegardless()
+    }
+    func clearParked(){
+        for stage in parked.values { stage.window.vanish(); if let old=stage.stream { Task{try? await old.stopCapture()} } }
+        parked=[:]
+    }
+    // Esc 한 번: 모든 모니터의 확대와 집중 모드를 푼다.
+    func clearZooms(){ scale=1;focus=false;view?.focus=false;clearParked();updatePointer() }
     // 화면에 실제로 그려질 부분만 돌려준다. nil 이면 이번 프레임은 한 장도 만들 필요가 없다.
     // 1배이고 집중 모드가 꺼져 있으면 LiveView.draw 가 그림을 아예 쓰지 않는다. 그때 변환하면
     // 만들어서 그대로 버리는 셈이라 전체 비용의 대부분이 거기서 샌다(측정: 코어의 21%).
@@ -715,14 +779,19 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             self.lastFrame=CFAbsoluteTimeGetCurrent();view.needsDisplay=true
         }
     }
-    func stream(_ stream:SCStream,didStopWithError error:Error){DispatchQueue.main.async{[weak self] in self?.stopAction();self?.tell("화면 연결이 끊겨 발표를 끝냈습니다")}}
+    func stream(_ stream:SCStream,didStopWithError error:Error){DispatchQueue.main.async{[weak self] in
+        guard let self=self else{return}
+        // 떠나 있던 모니터만 끊겼으면(모니터를 뺐을 때 등) 그 확대만 거둔다.
+        if let lost=self.parked.first(where:{$0.value.stream === stream}) { lost.value.window.vanish(); self.parked[lost.key]=nil; return }
+        self.stopAction();self.tell("화면 연결이 끊겨 발표를 끝냈습니다")
+    }}
     @objc func stopAction(){
         generation+=1;active=false;scale=1;focus=false;timer?.invalidate();timer=nil
         if cursorHidden{CGDisplayShowCursor(displayID);cursorHidden=false}
         CGDisplayShowCursor(displayID)
         if let tap=tap{CGEvent.tapEnable(tap:tap,enable:false);CFMachPortInvalidate(tap)};tap=nil
         if let source=tapSource{CFRunLoopRemoveSource(CFRunLoopGetMain(),source,.commonModes)};tapSource=nil
-        window?.vanish();window=nil;view=nil
+        window?.vanish();window=nil;view=nil;clearParked()
         publishState()
         if let stream=stream{Task{try? await stream.stopCapture()}};stream=nil;status?.button?.title=status?.button?.image==nil ? "다있쌤 ↗" : ""
     }
@@ -1149,6 +1218,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             scale=1
             if focus { focus=false; view?.focus=false; view?.blurImage=nil }
             view?.ready=false; window?.orderOut(nil); publishState()
+            for stage in parked.values { stage.view.ready=false; stage.window.orderOut(nil) }
         }
         var made:[(SnipOverlay,NSScreen)]=[]
         for screen in NSScreen.screens {
@@ -1220,6 +1290,7 @@ final class Presenter: NSObject, NSApplicationDelegate, SCStreamOutput, SCStream
             scale=oldScale
             if oldFocus { focus=true; view?.focus=true }
             view?.ready=true; window?.orderFrontRegardless(); updatePointer(); publishState()
+            for stage in parked.values { stage.view.ready=true; stage.window.orderFrontRegardless() }
         }
         snipRestore=nil
     }

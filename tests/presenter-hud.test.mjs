@@ -16,4 +16,11 @@ test('윈도우 확대는 커서가 있는 모니터의 렌즈만 따라간다 �
   assert.ok(view.includes('lens.Look(zoom,'),'커서가 있는 모니터의 렌즈만 따라간다');
   assert.doesNotMatch(view,/MagSetFullscreenTransform|\.Primary/);
 });
-
+test('맥 확대도 모니터별이다 — 떠난 모니터는 그대로 두고, 돌아오면 그 배율로 이어지고, 처음 가는 모니터는 1배다',()=>{
+  const go=swift.slice(swift.indexOf('func followMouse('),swift.indexOf('func parkCurrent('));
+  assert.match(go,/parkCurrent\(\)[\s\S]*parked\.removeValue[\s\S]*resume\(back[\s\S]*scale=1/);
+  const esc=swift.slice(swift.indexOf('func clearZooms('),swift.indexOf('func needed('));
+  assert.match(esc,/clearParked\(\)/,'Esc 는 모든 모니터의 확대를 푼다');
+  const stop=swift.slice(swift.indexOf('@objc func stopAction('),swift.indexOf('static var stateFile'));
+  assert.match(stop,/clearParked\(\)/,'발표를 끝내면 떠나 있던 모니터의 캡처도 멈춘다');
+});
