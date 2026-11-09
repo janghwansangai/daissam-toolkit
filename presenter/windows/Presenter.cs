@@ -64,6 +64,9 @@ namespace BrowserSheriff {
     [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window,uint command);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);
+    [StructLayout(LayoutKind.Sequential)] public struct Rect {public int Left,Top,Right,Bottom;}
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window,out Rect rect);
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr window,int attribute,out int value,int size);
     // 훅 전용 실의 메시지 고리.
     [StructLayout(LayoutKind.Sequential)] public struct Msg {public IntPtr window;public uint message;public IntPtr wParam,lParam;public uint time;public Point pt;public uint reserved;}
     [DllImport("user32.dll")] public static extern int GetMessage(out Msg message,IntPtr window,uint first,uint last);
@@ -132,7 +135,7 @@ namespace BrowserSheriff {
   // 배율 하나를 걸어 다른 모니터까지 함께 커졌고, ZoomIt 주석대로 UIAccess 없이는 일부 입력이 엉뚱한 곳으로 간다.
   // 창 방식에서는 실제 창은 제자리이고 그림만 커지므로 클릭은 커서 밑의 진짜 창으로 그대로 내려간다.
   sealed class ZoomLens:Form {
-    public readonly Rectangle Area;
+    public Rectangle Area {get;}
     public float Level=1;
     IntPtr lens=IntPtr.Zero;
     float shownLevel=-1;int shownX=int.MinValue,shownY=int.MinValue;
@@ -1855,7 +1858,7 @@ namespace BrowserSheriff {
       if(!lens.Visible)ShowLens(lens);
     }
     // 렌즈를 보이기 전에 새 그림을 받게 하고, 보인 뒤에는 우리 표시들을 렌즈 위로 다시 올린다.
-    void ShowLens(ZoomLens lens){lens.Repaint();lens.Show();RaiseOurs();}
+    void ShowLens(ZoomLens lens){lens.Repaint();TuckLens(lens);lens.Show();TuckLenses();}
     void ClearZooms(){foreach(ZoomLens lens in lenses.Values){lens.Level=1;if(lens.Visible)lens.Hide();}}
     IntPtr[] OverlayWindows(bool withLenses){
       System.Collections.Generic.List<IntPtr> ours=new System.Collections.Generic.List<IntPtr>();
@@ -1874,6 +1877,26 @@ namespace BrowserSheriff {
     }
     // 겹침 순서를 아래에서 위로 다시 쌓는다(덮개 → 핀 → 포인터 → 카메라 → 녹화 표시기). BringToFront 는 창을 활성화하므로 쓰지 않는다.
     void RaiseOurs(){foreach(IntPtr window in OverlayWindows(false))Native.SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0013);}
+    // 렌즈를 우리 표시들 바로 밑에 끼워 넣는다. 맨 위로 올렸다가 표시들을 다시 올리면 그 찰나에 렌즈가 핀을 덮어 깜박인다
+    // (사용자 보고: 확대 중 핀이 깜박임. 실측: 렌즈가 핀 위에 있던 순간이 3초에 2,702번). 이렇게 하면 렌즈가 표시들 위로 가는 순간이 없다.
+    void TuckLens(ZoomLens lens){
+      IntPtr[] ours=OverlayWindows(false);
+      Native.SetWindowPos(lens.Handle,ours.Length>0?ours[0]:new IntPtr(-1),0,0,0,0,0x0013);
+    }
+    void TuckLenses(){
+      RaiseOurs();
+      foreach(ZoomLens lens in lenses.Values)if(lens.Visible)TuckLens(lens);
+    }
+    // 실제로 보이면서 보이는 렌즈를 가리는 창인가. 시스템에는 숨김(cloaked) 상태로 늘 맨 위에 있는 창이 있다
+    // (ThumbnailDeviceHelperWnd 1x1). 이것까지 낯선 창으로 치면 프레임마다 겹침 순서를 다시 쌓게 된다.
+    bool CoversLens(IntPtr window){
+      int cloaked;
+      if(Native.DwmGetWindowAttribute(window,14,out cloaked,4)==0&&cloaked!=0)return false;   // DWMWA_CLOAKED
+      Native.Rect box;if(!Native.GetWindowRect(window,out box))return false;
+      Rectangle area=Rectangle.FromLTRB(box.Left,box.Top,box.Right,box.Bottom);
+      foreach(ZoomLens lens in lenses.Values)if(lens.Visible&&lens.Area.IntersectsWith(area))return true;
+      return false;
+    }
     // 프레임마다: 렌즈 그림을 새로 받고, 다른 프로그램의 맨 위 창(메뉴 · 풍선말)이 렌즈 위로 올라왔으면 되찾는다.
     // 위에 있는 창을 훑어 낯선 창이 있을 때만 다시 쌓는다. 그래야 평소에는 SetWindowPos 를 부르지 않는다.
     void KeepLenses(){
@@ -1888,11 +1911,9 @@ namespace BrowserSheriff {
         foreach(ZoomLens lens in lenses.Values)if(lens.Visible&&lens.Handle==window)isLens=true;
         if(isLens){left--;continue;}
         uint owner;Native.GetWindowThreadProcessId(window,out owner);
-        if(owner!=me)stranger=true;
+        if(owner!=me&&CoversLens(window))stranger=true;
       }
-      if(!stranger)return;
-      foreach(ZoomLens lens in lenses.Values)if(lens.Visible)Native.SetWindowPos(lens.Handle,new IntPtr(-1),0,0,0,0,0x0013);
-      RaiseOurs();
+      if(stranger)TuckLenses();
     }
     void EscapeKey(){
       if(!active)return;
