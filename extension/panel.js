@@ -8,6 +8,7 @@ const $=id=>document.getElementById(id);
 let noteOrder=[],folderOrder=[],marksOpenUntil=0;
 // 비밀 메모(v0.43.0): 지금 열어 둔 비밀 메모 하나. 다른 메모로 옮기거나 사이드바가 가려지거나 잠기면 비운다.
 let secretOpenId=null,currentSecret=false;
+let autoHide=false,sideWindow=null;   // 자동 숨김. 캡처 단추가 쓰므로 여기서 먼저 만든다
 function secretCovered(){return currentSecret&&secretOpenId!==currentNoteId;}
 // 아래 값들은 사이드바가 처음 그려질 때(파일 중간의 `await renderState(first)`) 이미 쓰일 수 있어 여기서 먼저 만든다.
 // 파일 끝에 두었더니 그 await 동안 아직 만들어지지 않아 ‘Cannot access … before initialization’ 이 났다(v0.43.0).
@@ -726,7 +727,7 @@ event('present-focus','click',async()=>{
   settleLater();
 });
 // 화면 조각 핀. 발표 중이 아니어도 앱만 떠 있으면 쓸 수 있어 상태를 보고 막지 않는다.
-event('pin-snip','click',async()=>{applyPresenterState(await present('snip'));notice('화면에서 붙일 부분을 끌어 주세요. Esc 또는 오른쪽 클릭으로 취소합니다.');});
+event('pin-snip','click',async()=>{if(await hideThenPick('snip',''))return;applyPresenterState(await present('snip'));notice('화면에서 붙일 부분을 끌어 주세요. Esc 또는 오른쪽 클릭으로 취소합니다.');});
 event('pin-clip','click',async()=>{applyPresenterState(await present('pin-clip'));notice('클립보드에 있던 그림이나 글을 화면에 붙였습니다.');});
 event('pin-through','click',async()=>{
   // 핀 위에서만 켤 수 있으면 켜고 끄는 길이 어긋난다. 여기서 모든 핀을 한 번에 뒤집는다.
@@ -1203,7 +1204,8 @@ async function runCapture(mode,after,hint){
   try{
     await saveCapture();
     // 사이드바가 열려 있으면 페이지가 그만큼 좁아져 좁게 찍힌다. 닫고 찍은 뒤 알림으로 알린다.
-    if(capOptions.hideSide&&mode!=='delay'){
+    // 자동 숨김이면 끌어 고르는 캡처는 설정과 상관없이 사이드바가 먼저 사라진 뒤에 고른다.
+    if((capOptions.hideSide||(autoHide&&sideWindow!==null&&(mode==='area'||mode==='ocr')))&&mode!=='delay'){
       chrome.runtime.sendMessage({type:'capture',mode,...(after?{after}:{}),notify:true,widen:true}).catch(()=>{});
       capSay('사이드바를 닫고 찍습니다. 끝나면 사이드바가 돌아옵니다.');
       setTimeout(()=>window.close(),80);
@@ -1221,6 +1223,7 @@ event('cap-full','click',()=>runCapture('full','','페이지를 내려가며 찍
 // 발표 도우미 앱이 있으면 화면 전체에서 고르고(다른 앱 · 다른 모니터도, 고른 곳은 폴더 저장 + 복사),
 // 없으면 이 탭 안에서 고른다(‘캡처 후’ 설정대로). 앱은 고른 그림을 파일로 저장하므로 편집기로 바로 열 수 없다.
 event('cap-area','click',async()=>{
+  if(await hideThenPick('snip-save',''))return;
   try{
     await api('presenter-command',{action:'snip-save'});
     capSay('화면에서 끌어 고르세요 · Esc 로 그만둡니다. 다른 앱·다른 모니터도 됩니다 — 고른 곳은 ‘캡처이미지’ 폴더에 저장하고 복사합니다.');
@@ -1245,6 +1248,7 @@ event('cap-ocr','click',()=>runCapture('ocr','','글자를 뽑을 곳을 페이�
 // 도크의 빠른 캡처 두 개: 설정과 상관없이 늘 폴더 저장 + 클립보드 복사(바로 붙여넣기).
 // 도크의 선택 영역은 화면 전체에서 고른다(다른 앱·다른 모니터도). 앱이 없으면 탭에서 고른다.
 event('dock-cap-area','click',async()=>{
+  if(await hideThenPick('snip-save','both'))return;
   capSay('화면에서 끌어 고르세요 · Esc 로 그만둡니다. 다른 앱·다른 모니터도 됩니다.');
   try{ await api('presenter-command',{action:'snip-save'}); capSay('고른 곳을 ‘캡처이미지’ 폴더에 저장하고 복사합니다.'); }
   catch{ await runCapture('area','both','페이지에서 끌어 고르세요 — 캡처이미지 폴더에 저장하고 복사합니다.'); }
@@ -2207,13 +2211,24 @@ event('report-settings','click',()=>chrome.tabs.create({url:reportURL()}));
 // 한글 조합 중(imeOn)을 ‘바쁨’ 으로 두지 말 것: 맥 한글 입력은 다음 글자를 칠 때까지 마지막 글자를 조합 중으로 두어, 메모에 한글을
 // 치고 마우스를 빼면 영영 숨지 않았다(v0.45.0 사용자 보고 · 재현). 조합도 ‘치는 중’ 이므로 typedAt 만 새로 한다.
 const HIDE_AFTER=700;
-let autoHide=false,sideWindow=null,outside=false,hideTimer=0,typedAt=0,pressed=false,menuOpen=false,holdUntil=0,sideWhyShown='';
+let outside=false,hideTimer=0,typedAt=0,pressed=false,menuOpen=false,holdUntil=0,sideWhyShown='';
 function sideBusy(){
   return !!document.querySelector('dialog[open]')||$('workspace').hidden||pressed||menuOpen||Date.now()<holdUntil||Date.now()-typedAt<1500;
 }
 function sideSchedule(ms=HIDE_AFTER){
   clearTimeout(hideTimer);
   if(autoHide&&sideWindow!==null&&outside)hideTimer=setTimeout(()=>sideHide().catch(()=>{}),ms);
+}
+// 자동 숨김일 때 화면에서 끌어 고르는 일: 사이드바를 먼저 닫고, 다 닫힌 뒤 서비스 워커가 고르기를 시작한다.
+async function hideThenPick(action,after){
+  if(!autoHide||sideWindow===null)return false;
+  flushNote();
+  await Promise.race([saveChain,new Promise(resolve=>setTimeout(resolve,2500))]);
+  if(saveBroken)return true;       // 글이 화면에만 있다 — 닫지 않는다(저장 실패 안내가 떠 있다)
+  chrome.runtime.sendMessage({type:'side-panel',open:false,windowId:sideWindow}).catch(()=>{});
+  chrome.runtime.sendMessage({type:'side-pick',action,after}).catch(()=>{});
+  setTimeout(()=>window.close(),80);
+  return true;
 }
 async function sideBookmarkReady(){
   const [tab]=await chrome.tabs.query({active:true,windowId:sideWindow});
@@ -2258,6 +2273,9 @@ window.addEventListener('focus',()=>{holdUntil=0;});
   chrome.tabs.onUpdated.addListener((tabId,change,tab)=>{if(change.status==='complete'&&tab.active&&tab.windowId===sideWindow)sideSchedule();});
   // 이 창에 사이드바가 열렸다고 알린다 — 그 창의 책갈피가 숨는다. 닫힐 때도 알린다(✕ 로 닫아도).
   api('side-panel',{open:true,windowId:sideWindow}).catch(()=>{});
+  // 책갈피의 세로 도크에서 설정을 눌러 열린 경우
+  const {sideOpenPage}=await chrome.storage.session.get('sideOpenPage');
+  if(sideOpenPage){await chrome.storage.session.remove('sideOpenPage');if(!$('workspace').hidden)$('dock-settings').click();}
   window.addEventListener('pagehide',()=>{chrome.runtime.sendMessage({type:'side-panel',open:false,windowId:sideWindow}).catch(()=>{});});
 })().catch(()=>{});
 event('auto-hide','change',async()=>{

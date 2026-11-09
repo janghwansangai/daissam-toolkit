@@ -680,10 +680,12 @@ async function toast(tabId,text){
 // Chrome 은 sidePanel.open() 을 '사용자가 누른 직후' 에만 허락한다. 캡처가 끝나는 순간은
 // 그 직후가 아니라서 대개 막힌다 — 그래서 결과와 '다시 여는 법' 을 페이지 위에 띄워 준다.
 async function captureDone(away,text,title,tabId){
-  const opened=away?await away.back(true):false;
+  // 자동 숨김을 켜 두었으면 사이드바를 다시 열지 않는다 — 책갈피로 돌아오면 된다.
+  const {sideAutoHide}=await chrome.storage.local.get('sideAutoHide');
+  const opened=away?await away.back(sideAutoHide!==true):false;
   if(text)await chrome.storage.local.set({lastCapture:{text,at:Date.now()}}).catch(()=>{});
   // 알림은 **찍은 그 탭** 위에 띄운다. 사이드바를 닫은 탭과 다를 수 있다.
-  if(away&&!opened)await toast(tabId||away.tab?.id,text+' · 사이드바는 확장 아이콘을 눌러 다시 엽니다.').catch(()=>{});
+  if(away&&!opened)await toast(tabId||away.tab?.id,sideAutoHide===true?text:text+' · 사이드바는 확장 아이콘을 눌러 다시 엽니다.').catch(()=>{});
   if(title&&text)tell(title,text);
   chrome.runtime.sendMessage({type:'capture-done',text}).catch(()=>{});
 }
@@ -838,7 +840,8 @@ async function sideMark(windowId,open){
 async function sideTabView(windowId){
   const {sideAutoHide,sideTabSpot}=await chrome.storage.local.get(['sideAutoHide','sideTabSpot']);
   const on=sideAutoHide===true,spot=Number.isFinite(sideTabSpot)?Math.min(1,Math.max(0,sideTabSpot)):.5;
-  if(!on||sideHold>0||recordWindow||(await state()).locked)return {on,show:false,spot};
+  const s=await state();
+  if(!on||sideHold>0||recordWindow||s.locked)return {on,show:false,spot};
   const map=await sidePanelsOpen();
   let open=!!map[windowId];
   // 연 지 3초가 지났는데 사이드바가 하나도 없으면 닫힌 것이다(갓 연 사이드바는 아직 뜨는 중일 수 있다).
@@ -846,7 +849,48 @@ async function sideTabView(windowId){
     const panels=await chrome.runtime.getContexts({contextTypes:['SIDE_PANEL']}).catch(()=>null);
     if(panels&&!panels.length){await chrome.storage.session.set({sidePanels:{}});open=false;}
   }
-  return {on,show:!open,spot};
+  return {on,show:!open,spot,guest:s.guest};
+}
+// 화면에서 끌어 고르는 일(선택 영역 캡처 · 화면 조각). 사이드바가 다 닫히고 책갈피가 숨은 뒤에 시작해야, 고르는 동안 화면이
+// 움직이지 않고 앱이 찍는 멈춘 화면에도 사이드바와 책갈피가 들어가지 않는다. 앱이 없으면 선택 영역은 이 탭 안에서 고른다.
+async function sidePick(action,after,wait){
+  sideHold++;setTimeout(()=>{sideHold--;sideTabTell().catch(()=>{});},wait+1500);
+  await sideTabTell().catch(()=>{});
+  await new Promise(resolve=>setTimeout(resolve,wait));
+  let why=null;
+  try{ const reply=await presenterSay({type:'presenter',action}); if(reply?.ok!==false)return {app:true}; why=Error(String(reply.message||'발표 도우미 앱에 명령을 전달하지 못했습니다.')); }
+  catch(error){ why=appError(error); }
+  if(action==='snip'){ tell('화면 조각',why.message); throw why; }
+  return runCapture('area',{...(after?{after}:{}),notify:true});
+}
+// 책갈피에서 펼친 세로 도크의 단추. 사이드바의 도크와 같은 일을 하고, 여기 적힌 것만 받는다.
+const SIDE_DOCK_SAY={stop:'stop',through:'pins-through',pins:'pins-clear'};
+async function sideDock(action,tab){
+  const say=async(command,extra={})=>{
+    let reply;
+    try{ reply=await presenterSay({type:'presenter',action:command,...extra}); }catch(error){ throw appError(error); }
+    if(reply&&reply.ok===false)throw Error(String(reply.message||'발표 도우미 앱에 명령을 전달하지 못했습니다.'));
+    return reply;
+  };
+  if(Object.hasOwn(SIDE_DOCK_SAY,action))return say(SIDE_DOCK_SAY[action]);
+  if(action==='start'){
+    // 사이드바에서 정한 포인터 크기 · 색 · 어둡기를 함께 보낸다.
+    const {presentKnobs:k}=await chrome.storage.local.get('presentKnobs');
+    return say('start',k?{dim:String(k.dim/100),blur:String(k.blur),ringSize:String(k.ringSize),ring:String(k.ring)}:{});
+  }
+  if(action==='focus')return say((await say('state'))?.focus?'focus-off':'focus-on');
+  if(action==='snip')return sidePick('snip','',150);
+  if(action==='area')return sidePick('snip-save','both',150);
+  if(action==='full')return runCapture('full',{after:'both',notify:true});
+  if(action==='lock')return lock('button');
+  if(action==='pop'){
+    const {dockSpot}=await chrome.storage.local.get('dockSpot'),win=await chrome.windows.get(tab.windowId);
+    const size={width:404,height:76},left=Number.isFinite(dockSpot?.left)?dockSpot.left:Math.round((win.left||0)+((win.width||size.width)-size.width)/2),top=Number.isFinite(dockSpot?.top)?dockSpot.top:(win.top||0)+12;
+    const made=await chrome.windows.create({url:chrome.runtime.getURL('dock.html'),type:'popup',...size,left,top,focused:true});
+    await chrome.windows.update(made.id,{left,top,...size}).catch(()=>{});
+    return true;
+  }
+  throw new Error('알 수 없는 도크 단추입니다.');
 }
 // 책갈피들에게 지금 모습을 알린다(windowId 가 없으면 모든 창). 책갈피는 숨을 때 화면에서 실제로 사라진 뒤에 답한다.
 // 자동 숨김이 꺼져 있으면 아무 탭도 깨우지 않는다(always: 켬 · 끔 · 자리를 바꿀 때는 꺼져 있어도 모두에게 알린다).
@@ -923,6 +967,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
   if(m.type==='side-open'){
     const windowId=sender.tab?.windowId;
     if(!Number.isInteger(windowId)){reply({ok:false,error:'창을 찾지 못했습니다.'});return;}
+    if(m.page==='settings')chrome.storage.session.set({sideOpenPage:'settings'}).catch(()=>{});
     chrome.sidePanel.open({windowId}).then(()=>{
       reply({ok:true,data:true});
       exclusive(()=>sideMark(windowId,true)).catch(()=>{});
@@ -945,6 +990,11 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     }
     if(m.type==='side-tab')return Number.isInteger(sender.tab?.windowId)?sideTabView(sender.tab.windowId):{on:false,show:false,spot:.5};
     // 책갈피를 끌어 옮긴 자리(0 = 맨 위 · 1 = 맨 아래). 이 컴퓨터의 모든 탭이 같은 자리를 쓴다.
+    // 페이지 쪽 책갈피의 세로 도크. 맨 위 틀에서 온 것만, 잠겨 있지 않을 때만 받는다.
+    if(m.type==='side-dock'){
+      if(!sender.tab||sender.frameId!==0||(await state()).locked)throw new Error('지금은 쓸 수 없습니다.');
+      return sideDock(String(m.action),sender.tab);
+    }
     if(m.type==='side-spot'){
       const spot=Number(m.spot);
       if(!sender.tab||!Number.isFinite(spot)||spot<0||spot>1)throw new Error('책갈피 자리가 맞지 않습니다.');
@@ -972,6 +1022,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
       await sideTabTell(undefined,true);
       return m.on===true;
     }
+    if(m.type==='side-pick'){if((await state()).locked)throw new Error('먼저 프로필 잠금을 해제하세요.');return sidePick(m.action==='snip'?'snip':'snip-save',m.after&&String(m.after),550);}
     if(m.type==='side-panel'){
       const windowId=Number(m.windowId);
       if(!Number.isInteger(windowId)||windowId<0)throw new Error('창 번호가 맞지 않습니다.');

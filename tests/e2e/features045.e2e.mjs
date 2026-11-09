@@ -209,6 +209,69 @@ if (editor) await C.send('Target.closeTarget', {targetId: editor.targetId});
 await C.send('Target.activateTarget', {targetId: web.targetId}); await sleep(400);
 ok('캡처가 끝나면 책갈피가 돌아온다', (await waitTab(web, true)).shown === true);
 
+// ── v0.46.0 세로 도크 ──
+const setSpot = async spot => { await p.eval(`chrome.storage.local.set({sideTabSpot:${spot}})`); await web.cmd('Page.reload', {}); await web.waitFor(`document.readyState==='complete'`, 10000); await sleep(600); return waitTab(web, true); };
+const hostAt = (x, y) => web.eval(`document.elementFromPoint(${x},${y})?.hasAttribute?.('data-dais-sidetab')===true`);
+const dockInfo = () => web.eval(`(()=>{const h=document.querySelector('[data-dais-sidetab]');return {side:h.getAttribute('data-side'),btn:Number(h.getAttribute('data-btn'))};})()`);
+const hoverHead = async b => { await mouse(web, 'mouseMoved', 200, 300); await sleep(450); await mouse(web, 'mouseMoved', b.vw - 6, b.mid); await sleep(350); return dockInfo(); };
+// 단추 차례(게스트라 잠금 없음): 시작 정지 집중 조각 통과 핀 | 영역 전체 | 띄우기 설정
+const dockY = (b, size, at, seps) => b.top + 84 + 4 + size * at + 9 * seps + size / 2;
+const pressDock = async (b, size, at, seps) => { const y = dockY(b, size, at, seps), x = b.vw - 22; await mouse(web, 'mouseMoved', x, y); await sleep(200); await mouse(web, 'mousePressed', x, y); await mouse(web, 'mouseReleased', x, y); };
+await mouse(web, 'mouseMoved', 200, 300); await sleep(300);
+let low = await setSpot(.08);
+ok('(세로 도크) 올리기 전에는 아래쪽에 단추가 없다', await hostAt(low.vw - 22, low.top + 84 + 30) === false);
+let dock = await hoverHead(low);
+ok('(세로 도크) 올리면 책갈피 아래로 펼쳐진다', dock.side === 'below' && dock.btn >= 24 && dock.btn <= 38, dock);
+ok('(세로 도크) 펼쳐도 마우스가 있던 자리는 책갈피 머리다', (await tabBox(web)).top === low.top && await hostAt(low.vw - 6, low.mid), await tabBox(web));
+ok('(세로 도크) 단추 줄이 화면 안에 다 들어온다', dockY(low, dock.btn, 9, 2) + dock.btn / 2 <= low.vh, {low, dock});
+ok('(세로 도크) 단추 자리를 마우스가 받는다', await hostAt(low.vw - 22, dockY(low, dock.btn, 0, 0)) && await hostAt(low.vw - 22, dockY(low, dock.btn, 9, 2)));
+await sleep(500);
+ok('(세로 도크) 펼치기만 해서는 사이드바가 열리지 않는다', await panels() === 0);
+const beforeLeave = await hostAt(low.vw - 22, dockY(low, dock.btn, 2, 0));
+await mouse(web, 'mouseMoved', 200, 300); await sleep(600);
+ok('(세로 도크) 마우스가 나가면 접힌다', beforeLeave && await hostAt(low.vw - 22, dockY(low, dock.btn, 2, 0)) === false);
+// 앱이 없어도 멈추거나 사이드바가 열리지 않는다
+await hoverHead(low); await pressDock(low, dock.btn, 0, 0); await sleep(900);
+ok('(세로 도크) 앱 없이 발표 시작을 눌러도 책갈피가 그대로다', (await tabBox(web)).shown === true && await panels() === 0);
+// 도크만 띄우기
+await hoverHead(low); await pressDock(low, dock.btn, 8, 2);
+let popup; for (let i = 0; i < 30 && !popup; i++) { popup = (await C.send('Target.getTargets')).targetInfos.find(t => t.url === ORIGIN + '/dock.html'); if (!popup) await sleep(150); }
+ok('(세로 도크) 도크만 띄우기가 작은 창을 연다', !!popup);
+if (popup) await C.send('Target.closeTarget', {targetId: popup.targetId});
+await C.send('Target.activateTarget', {targetId: web.targetId}); await sleep(400);
+// 설정
+await hoverHead(low); await pressDock(low, dock.btn, 9, 2);
+ok('(세로 도크) 설정을 누르면 사이드바가 열린다', await waitPanels(1), await panels());
+sp = await side(); await sp.waitFor(sp.visible('#workspace'), 15000);
+const SETTINGS_SHOWN = `document.getElementById('settings').hidden===false`;
+await sp.waitFor(SETTINGS_SHOWN, 3000).catch(() => {});
+ok('(세로 도크) 열린 사이드바가 프로필 설정으로 간다', await sp.eval(`chrome.storage.session.get('sideOpenPage').then(r=>r.sideOpenPage===undefined)`) && await sp.eval(SETTINGS_SHOWN), await sp.eval(SETTINGS_SHOWN));
+// 선택 영역: 사이드바가 다 닫힌 뒤에 고른다
+const pickSeen = async () => { const from = Date.now(); for (let i = 0; i < 200; i++) { if (await web.eval(`!!document.getElementById('__dais_pick')`)) { console.log('     고르기까지', Date.now() - from, 'ms'); return true; } await sleep(50); } return false; };
+const pickState = async () => ({panels: await panels(), iw: await web.eval('innerWidth'), tab: (await tabBox(web)).shown});
+const escape = async () => { await web.cmd('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}); await web.cmd('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27}); await sleep(500); };
+const wideBefore = box.iw;
+await sp.eval(`document.getElementById('cap-area').click()`);
+let seenPick = await pickSeen(), at = await pickState();
+ok('(자동 숨김 캡처) 선택 영역을 누르면 고르는 화면이 뜬다', seenPick, at);
+ok('(자동 숨김 캡처) 고르기가 시작될 때 사이드바는 이미 사라지고 화면이 넓어져 있다', at.panels === 0 && at.iw >= wideBefore - 1, {at, wideBefore});
+ok('(자동 숨김 캡처) 고르는 동안 책갈피는 보이지 않는다', at.tab === false, at);
+await escape();
+ok('(자동 숨김 캡처) Esc 로 그만두면 책갈피가 돌아오고 사이드바는 닫힌 채다', (await waitTab(web, true, 6000)).shown === true && await panels() === 0, await pickState());
+// 세로 도크의 선택 영역
+await hoverHead(low); await pressDock(low, dock.btn, 6, 1);
+seenPick = await pickSeen(); at = await pickState();
+ok('(세로 도크) 선택 영역 단추로 고르기가 시작되고 책갈피는 숨는다', seenPick && at.tab === false && at.panels === 0, at);
+await escape();
+ok('(세로 도크) 그만두면 책갈피가 돌아온다', (await waitTab(web, true, 6000)).shown === true);
+// 아래쪽 자리에서는 위로 펼친다
+let high = await setSpot(.97);
+dock = await hoverHead(high);
+ok('(세로 도크) 아래 공간이 없으면 위로 펼친다', dock.side === 'above' && await hostAt(high.vw - 22, high.top - 30) && (await tabBox(web)).top === high.top, dock);
+await mouse(web, 'mouseMoved', 200, 300); await sleep(500);
+// 작은 창: 단추가 줄어 다 들어오거나 스크롤로 닿는다
+await setSpot(.5); box = await waitTab(web, true);
+
 // 사이드바에서 끄면: 책갈피가 사라지고, 마우스가 나가도 닫지 않는다
 await clickTab(web); await waitPanels(1); sp = await side(); await sp.waitFor(sp.visible('#workspace'), 15000);
 await sp.eval(`document.querySelector('header .auto-hide').click()`); await sleep(500);

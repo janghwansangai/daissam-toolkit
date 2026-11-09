@@ -26,7 +26,7 @@ test('켜면 사이드바가 닫힌 창에만 책갈피가 보인다 — 사이�
   assert.equal((await send('side-spot',{spot:.2},page(7))).ok,true,'책갈피가 옮긴 자리');
   assert.equal((await send('side-spot',{spot:3},page(7))).ok,false,'자리는 0~1');
   assert.equal((await send('side-spot',{spot:.4})).ok,false,'탭이 아닌 곳은 자리를 보내지 않는다');
-  assert.deepEqual(await view(7),{on:true,show:true,spot:.2});
+  assert.deepEqual(await view(7),{on:true,show:true,spot:.2,guest:true});
   assert.equal((await send('side-panel',{open:true,windowId:7})).ok,true);
   assert.equal((await view(7)).show,false,'사이드바가 열린 창');
   assert.equal((await view(8)).show,true,'다른 창에는 보인다');
@@ -60,17 +60,63 @@ test('책갈피를 누르면 기다리지 않고 바로 그 창에서 연다(Chr
   assert.equal((await view(9)).show,false,'연 창의 책갈피는 숨는다');
   assert.equal((await send('side-open',{},{url:'https://example.test/'})).ok,false,'탭이 없으면 거절');
 });
+test('책갈피의 세로 도크: 맨 위 틀의 탭에서, 정해진 단추만 받는다',async()=>{
+  const top={...page(8),frameId:0};
+  assert.equal((await send('side-dock',{action:'evil'},top)).ok,false,'모르는 단추는 거절');
+  assert.equal((await send('side-dock',{action:'constructor'},top)).ok,false,'이름으로 속일 수 없다');
+  assert.equal((await send('side-dock',{action:'stop'},{...page(8),frameId:3})).ok,false,'페이지 안 틀은 거절');
+  assert.equal((await send('side-dock',{action:'stop'},{url:'https://example.test/'})).ok,false,'탭이 아닌 곳은 거절');
+  assert.equal((await send('side-pick',{action:'snip'},top)).ok,false,'고르기 시작은 사이드바만');
+});
+test('책갈피의 세로 도크: 사이드바 도크와 같은 명령을 앱에 보낸다 · 앱이 없으면 까닭을 돌려준다',async()=>{
+  const top={...page(8),frameId:0},connect=mock.chrome.runtime.connectNative;
+  mock.chrome.runtime.connectNative=()=>{throw new Error('no port');};
+  const said=()=>mock.nativeMessages.map(one=>one.message.action);
+  try{
+    mock.nativeMessages.length=0;
+    for(const action of ['stop','through','pins'])assert.equal((await send('side-dock',{action},top)).ok,true,action);
+    assert.deepEqual(said(),['stop','pins-through','pins-clear']);
+    mock.nativeMessages.length=0;mock.native.presenter.focus=false;
+    await send('side-dock',{action:'focus'},top);
+    assert.deepEqual(said(),['state','focus-on'],'꺼져 있으면 켠다');
+    mock.nativeMessages.length=0;mock.native.presenter.focus=true;
+    await send('side-dock',{action:'focus'},top);
+    assert.deepEqual(said(),['state','focus-off'],'켜져 있으면 끈다');
+    mock.native.presenter.focus=false;mock.nativeMessages.length=0;
+    await mock.chrome.storage.local.set({presentKnobs:{dim:30,blur:4,ringSize:60,ring:'#ff0000'}});
+    await send('side-dock',{action:'start'},top);
+    assert.deepEqual(mock.nativeMessages[0].message,{type:'presenter',action:'start',dim:'0.3',blur:'4',ringSize:'60',ring:'#ff0000'},'사이드바에서 정한 값을 함께 보낸다');
+    await mock.chrome.storage.local.remove('presentKnobs');
+    mock.native.available=false;
+    const missing=await send('side-dock',{action:'stop'},top);
+    assert.equal(missing.ok,false);assert.match(missing.error,/발표 도우미/);
+  }finally{mock.native.available=true;mock.chrome.runtime.connectNative=connect;}
+});
+test('책갈피 설정 단추는 누른 순간에 열고, 열린 사이드바가 설정으로 가도록 표시를 남긴다',async()=>{
+  opened.length=0;
+  const pending=send('side-open',{page:'settings'},page(11));
+  assert.deepEqual(opened,[{windowId:11}]);
+  assert.equal((await pending).ok,true);
+  assert.equal(mock.data.session.sideOpenPage,'settings');
+  delete mock.data.session.sideOpenPage;
+  await send('side-open',{},page(11));
+  assert.equal(mock.data.session.sideOpenPage,undefined,'그냥 열 때는 표시가 없다');
+  await send('side-panel',{open:false,windowId:11});
+});
 test('잠기면 책갈피를 숨긴다',async()=>{
   assert.equal((await send('pin-make',{pin:'246810'})).ok,true);
   assert.equal((await view(8)).show,true);
   await send('lock');
   assert.deepEqual(await view(8),{on:true,show:false,spot:.2});
+  assert.equal((await send('side-dock',{action:'full'},{...page(8),frameId:0})).ok,false,'잠겨 있으면 도크도 거절');
+  assert.equal((await send('side-pick',{action:'snip'})).ok,false,'잠겨 있으면 고르기도 거절');
 });
 
 function sideTabEnv({top=true,on=false}={}){
   const listeners=[],sent=[],built=[];let push;
+  const element=()=>({style:{setProperty(){},cssText:''},setAttribute(){},append(){},addEventListener(){},attachShadow:()=>({append(){}}),classList:{add(){},remove(){},toggle(){}},isConnected:false});
   const doc={querySelectorAll:()=>[],documentElement:{append(){}},addEventListener:(type,fn,o={})=>listeners.push({type,fn,passive:o.passive===true}),removeEventListener(){},hidden:false,
-    createElement:tag=>{built.push(tag);return {style:{setProperty(){},cssText:''},setAttribute(){},append(){},addEventListener(){},attachShadow:()=>({append(){}}),classList:{add(){},remove(){}},isConnected:false};}};
+    createElement:tag=>{built.push(tag);return element();},createElementNS:()=>element()};
   const win={addEventListener:(type,fn,o={})=>listeners.push({type,fn,passive:o.passive===true}),removeEventListener(){}};
   win.top=top?win:{};
   const chrome={runtime:{id:'x',sendMessage:async m=>{sent.push(m);return {ok:true,data:{on,show:on,spot:.5}};},onMessage:{addListener:f=>{push=f;},removeListener(){}}}};
