@@ -1195,6 +1195,8 @@ async function saveCapture(){
 }
 for(const id of ['cap-after','cap-delay-sec','cap-format','cap-hide-fixed','cap-hide-bar','cap-hide-side'])event(id,'change',saveCapture);
 event('cap-quality','input',saveCapture);
+// 위의 saveCapture 가 capOptions 를 먼저 고친 뒤에 돈다(같은 change 에 나중에 붙였다).
+event('cap-after','change',()=>checkAreaMode());
 // 캡처 하나. 오래 걸릴 수 있어(전체 페이지는 장마다 0.6초) 그동안 단추를 잠가 두 번 누르지 않게 한다.
 let capturing=false;
 async function runCapture(mode,after,hint){
@@ -1222,7 +1224,11 @@ event('cap-full','click',()=>runCapture('full','','페이지를 내려가며 찍
 // 끌어서 고르기는 단추 하나다(예전의 ‘화면 영역 · 다른 앱 · 다른 모니터’ 를 합쳤다 — 사용자와 정한 정리안).
 // 발표 도우미 앱이 있으면 화면 전체에서 고르고(다른 앱 · 다른 모니터도, 고른 곳은 폴더 저장 + 복사),
 // 없으면 이 탭 안에서 고른다(‘캡처 후’ 설정대로). 앱은 고른 그림을 파일로 저장하므로 편집기로 바로 열 수 없다.
+// ‘편집기에서 꾸미기’ 면 앱에 맡기지 않는다 — 앱은 고른 그림을 폴더 저장 + 복사만 해서, 편집기가 열리지 않고
+// 저장만 되었다(사용자 보고, 맥 · 윈도우 모두). 확장이 탭 안에서 고르면 ‘캡처 후’ 설정대로 편집기가 열린다.
+const areaByApp=()=>capOptions.after!=='editor';
 event('cap-area','click',async()=>{
+  if(!areaByApp()){await runCapture('area','','페이지에서 끌어 고르세요 — 고른 곳을 편집기로 엽니다. Esc 로 그만둡니다.');return;}
   if(await hideThenPick('snip-save',''))return;
   try{
     await api('presenter-command',{action:'snip-save'});
@@ -1236,6 +1242,11 @@ event('cap-area','click',async()=>{
 // 보여 주지 않으면 헷갈린다(사용자 보고).
 function showAreaMode(app){
   $('cap-area-mode').replaceChildren();
+  if(!areaByApp()){
+    const b=document.createElement('b');b.textContent='선택 영역: 이 탭 안에서 고릅니다';
+    $('cap-area-mode').append(b,' — ‘캡처 후’ 가 편집기에서 꾸미기라 고른 곳을 편집기로 엽니다.'+(app?' 다른 앱 · 다른 모니터까지 고르려면 ‘캡처 후’ 를 저장 · 복사로 바꾸세요.':''));
+    return;
+  }
   const b=document.createElement('b');
   b.textContent=app?'선택 영역: 화면 전체에서 고릅니다':'선택 영역: 이 탭 안에서 고릅니다';
   $('cap-area-mode').append(b,app?' — 다른 앱 · 다른 모니터도. 고른 곳은 캡처이미지 폴더 저장 + 복사(발표 도우미).':' — 다른 앱 · 다른 모니터까지 고르려면 발표 도우미 앱을 설치하세요(발표 탭).');
@@ -1275,6 +1286,8 @@ event('cap-screen','click',async()=>{
     :[result.path?'캡처이미지 폴더에 저장했습니다.':'',result.copied?'클립보드에 복사했습니다.':''].join(' '));
 });
 event('cap-local','click',()=>chrome.tabs.create({url:chrome.runtime.getURL('capture.html#new')}));
+// 유틸리티에서도 같은 빈 편집기를 연다(사용자 요청).
+event('editor-open','click',()=>chrome.tabs.create({url:chrome.runtime.getURL('capture.html#new')}));
 event('cap-keys','click',()=>chrome.tabs.create({url:'chrome://extensions/shortcuts'}));
 
 // ── 영상 ──
