@@ -18,7 +18,7 @@
   globalThis.__daisSideTab=instance;
   // 세로 도크: 사이드바 도크와 같은 단추, 같은 차례. null 은 묶음 사이 구분선.
   const SVG={area:[['path','M4.5 1.8v9.7h9.7'],['path','M1.8 4.5h9.7v9.7']],full:[['rect',3.2,1.8,7.6,12.4,1.4],['path','M13.6 5.5v6m-1.5-1.5 1.5 1.5 1.5-1.5']],pop:[['rect',1.8,3.4,8.4,7.2,1.3],['path','M8.6 5.4h5.6v7.2H6.2']],lock:[['rect',3.2,7,9.6,6.6,1.6],['path','M5.4 7V4.9a2.6 2.6 0 0 1 5.2 0V7']]};
-  const ITEMS=[['start','▶','발표 시작'],['stop','■','발표 종료'],['focus','◉','집중 모드 켜기 · 끄기'],['snip','⛶','화면 조각 잘라 붙이기'],['through','◌','핀 클릭 통과 켜기 · 끄기'],['pins','⨯','핀 모두 닫기'],null,['area',null,'선택 영역 캡처 · 저장 + 복사'],['full',null,'스크롤 캡처 · 저장 + 복사'],null,['pop',null,'도크만 따로 띄우기'],['settings','⚙','프로필 설정'],['lock',null,'프로필 잠그기']];
+  const ITEMS=[['start','▶','발표 시작'],['stop','■','발표 종료'],['focus','◉','집중 모드 켜기 · 끄기'],['snip','⛶','화면 조각 잘라 붙이기'],['through','◌','핀 클릭 통과 켜기 · 끄기'],['pins','⨯','핀 모두 닫기'],null,['area',null,'선택 영역 캡처 · 캡처 탭 설정대로'],['full',null,'스크롤 캡처 · 캡처 탭 설정대로'],null,['pop',null,'도크만 따로 띄우기'],['settings','⚙','프로필 설정'],['lock',null,'프로필 잠그기']];
   const WIDE=44,SEP=9;
   const STYLE=`:host{all:initial}
 .box{position:relative;font:700 11px/1 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic','Segoe UI',sans-serif;color:#eaf7e2}

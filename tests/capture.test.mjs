@@ -225,9 +225,12 @@ test('도크와 캡처 탭에서 화면 전체를 끌어 고를 수 있다', () 
   assert.match(html, /id="cap-area-mode"/, '선택 영역이 지금 어느 방식인지 보여 준다');
   // v0.46.1: ‘편집기에서 꾸미기’ 면 앱에 맡기지 않고 탭 안에서 고른다(앱은 저장 + 복사만 해 편집기가 열리지 않았다).
   assert.match(panel, /const areaByApp=\(\)=>capOptions\.after!=='editor';/);
-  assert.match(panel, /event\('cap-area','click',async\(\)=>\{\n  if\(!areaByApp\(\)\)\{await runCapture\('area',/, '편집기면 탭 안에서 고른다');
-  assert.match(panel, /event\('cap-area','click',async\(\)=>\{\n  if\(!areaByApp\(\)\)\{[^\n]*\n  if\(await hideThenPick\('snip-save',''\)\)return;\n  try\{\n    await api\('presenter-command',\{action:'snip-save'\}\)/, '캡처 탭 선택 영역도 앱을 먼저 쓴다');
-  assert.equal((panel.match(/action:'snip-save'/g) || []).length, 2, '캡처 탭과 도크 둘 다');
+  assert.match(panel, /async function areaCapture\(\)\{\n  if\(!areaByApp\(\)\)\{await runCapture\('area',/, '편집기면 탭 안에서 고른다');
+  assert.match(panel, /event\('cap-area','click',areaCapture\);/);
+  assert.match(panel, /event\('dock-cap-area','click',areaCapture\);/, 'v0.46.2: 도크의 선택 영역도 같은 함수(캡처 후 설정대로)');
+  assert.match(panel, /event\('dock-cap-full','click',\(\)=>runCapture\('full','',/, 'v0.46.2: 도크의 스크롤 캡처도 설정대로');
+  assert.match(panel, /async function areaCapture\(\)\{\n  if\(!areaByApp\(\)\)\{[^\n]*\n  if\(await hideThenPick\('snip-save',''\)\)return;\n  try\{\n    await api\('presenter-command',\{action:'snip-save'\}\)/, '캡처 탭 선택 영역도 앱을 먼저 쓴다');
+  assert.equal((panel.match(/action:'snip-save'/g) || []).length, 1, '캡처 탭과 도크가 한 함수를 같이 쓴다');
   assert.match(readFileSync('extension/dock.js', 'utf8'), /present\('snip-save'\)/);
 });
 
@@ -448,8 +451,11 @@ test('따로 띄운 도크는 단추 줄 하나이고 처음에는 위쪽 가운
 test('도크의 선택 영역은 앱의 화면 조각 저장으로 가고, 앱이 없으면 탭 캡처로 물러난다', () => {
   const dock = readFileSync('extension/dock.js', 'utf8');
   assert.match(dock, /present\('snip-save'\)/);
-  assert.match(dock, /catch \{ await api\('capture', \{mode: 'area', after: 'both', notify: true\}\); \}/);
-  assert.match(dock, /mode: 'full', after: 'both', notify: true/);
+  // v0.46.2: 따로 띄운 도크도 ‘캡처 후’ 설정대로 — 편집기면 앱에 맡기지 않는다.
+  assert.match(dock, /if \(await editorAfter\(\)\) \{ await api\('capture', \{mode: 'area', notify: true\}\); return; \}/);
+  assert.match(dock, /catch \{ await api\('capture', \{mode: 'area', notify: true\}\); \}/);
+  assert.match(dock, /api\('capture', \{mode: 'full', notify: true\}\)/);
+  assert.doesNotMatch(dock, /after: 'both'/, '도크가 설정을 덮어쓰지 않는다');
   for (const file of ['presenter/macos/Presenter.swift', 'presenter/windows/Presenter.cs'])
     assert.match(readFileSync(file, 'utf8'), /"snip-save"/, file + ' 도 그 명령을 알아야 한다');
 });

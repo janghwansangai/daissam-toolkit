@@ -2,7 +2,7 @@ import {seal,unseal,assertPin} from './lib/crypto.js';
 import {validateNote,checkQuota,noteKey,parseNoteKey,noteGroups,validateNoteId,validateTitle,autoTitle,LEGACY_NOTE,NOTE_BYTES,cleanOrder,fitZoom} from './lib/data.js';
 import {cleanBackup,mergedNotes,planNotes,planMarks,mergeImages,collectBackup,plainBackup,openBackup,IMAGES_PER_NOTE,IMAGES_TOTAL} from './lib/backup.js';
 import {backupName,sortBackups,pruneList,fingerprint,worthKeeping,deviceTag,READ_CHUNK,CHANGE_GAP_MINUTES} from './lib/autobackup.js';
-import {captureAndDeliver,targetTab,pickTabArea,TAB_BLOCKED} from './capture-core.js';
+import {captureAndDeliver,captureOptions,targetTab,pickTabArea,TAB_BLOCKED} from './capture-core.js';
 const RULE=701;
 const HOST='app.browsersheriff.presenter';
 // 개발자 모드로 올린 판의 확장 ID. 스토어 판과 함께 깔려 있으면 잠금 화면이 둘 겹칠 수 있어 잠금 화면에 어느 판인지 적는다.
@@ -880,8 +880,9 @@ async function sideDock(action,tab){
   }
   if(action==='focus')return say((await say('state'))?.focus?'focus-off':'focus-on');
   if(action==='snip')return sidePick('snip','',150);
-  if(action==='area')return sidePick('snip-save','both',150);
-  if(action==='full')return runCapture('full',{after:'both',notify:true});
+  // 캡처는 캡처 탭의 ‘캡처 후’ 설정대로. 편집기면 앱(폴더 저장 + 복사만 한다)에 맡기지 않고 탭 안에서 고른다.
+  if(action==='area')return (await captureOptions()).after==='editor'?runCapture('area',{notify:true}):sidePick('snip-save','',150);
+  if(action==='full')return runCapture('full',{notify:true});
   if(action==='lock')return lock('button');
   if(action==='pop'){
     const {dockSpot}=await chrome.storage.local.get('dockSpot'),win=await chrome.windows.get(tab.windowId);
@@ -1152,7 +1153,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
     if(m.type==='auto-backup-set'){await chrome.storage.local.set({autoBackup:m.on!==false});return backupInfo();}
     if(m.type==='close-window'){const w=await chrome.windows.getCurrent();await chrome.windows.remove(w.id);return true;}
     if((await state()).locked || !(await state()).configured)throw new Error('먼저 프로필 잠금을 해제하세요.');
-    // 캡처: mode 는 visible·area·full·delay·ocr. after 를 주면 설정 대신 그것을 쓴다(도크는 'both').
+    // 캡처: mode 는 visible·area·full·delay·ocr. after 를 주면 설정 대신 그것을 쓴다(도크도 v0.46.2 부터 설정대로).
     if(m.type==='capture')return runCapture(String(m.mode||'visible'),{after:m.after&&String(m.after),notify:!!m.notify,widen:!!m.widen});
     // 영상 녹화 창. 작은 창 하나가 곧 컨트롤 바다. 선택 영역은 먼저 페이지에서 고른다.
     // 녹화 전에 '이 탭' 을 찍을 수 있는지만 본다. 사이드바가 닫히기 전에 알려 줘야

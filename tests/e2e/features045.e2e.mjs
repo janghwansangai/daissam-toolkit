@@ -264,6 +264,16 @@ seenPick = await pickSeen(); at = await pickState();
 ok('(세로 도크) 선택 영역 단추로 고르기가 시작되고 책갈피는 숨는다', seenPick && at.tab === false && at.panels === 0, at);
 await escape();
 ok('(세로 도크) 그만두면 책갈피가 돌아온다', (await waitTab(web, true, 6000)).shown === true);
+// v0.46.2 세로 도크의 스크롤 캡처도 ‘캡처 후’ 설정(기본: 편집기에서 꾸미기)대로 — 예전에는 늘 저장 + 복사였다.
+{
+  const open = (await C.send('Target.getTargets')).targetInfos.filter(t => t.url.startsWith(ORIGIN + '/capture.html')).map(t => t.targetId);
+  await hoverHead(low); await pressDock(low, dock.btn, 7, 1);
+  let ed; for (let i = 0; i < 100 && !ed; i++) { ed = (await C.send('Target.getTargets')).targetInfos.find(t => t.url.startsWith(ORIGIN + '/capture.html#') && !open.includes(t.targetId)); if (!ed) await sleep(150); }
+  ok('(세로 도크) 스크롤 캡처는 캡처 탭 설정대로 꾸미기 화면으로 열린다', !!ed && !/#new|why=/.test(ed.url), ed?.url);   // why= 는 저장 실패로 대신 연 것
+  if (ed) await C.send('Target.closeTarget', {targetId: ed.targetId});
+  await C.send('Target.activateTarget', {targetId: web.targetId}); await sleep(400);
+  ok('(세로 도크) 스크롤 캡처 뒤 책갈피가 돌아온다', (await waitTab(web, true, 6000)).shown === true);
+}
 // 아래쪽 자리에서는 위로 펼친다
 let high = await setSpot(.97);
 dock = await hoverHead(high);

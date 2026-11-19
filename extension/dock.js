@@ -39,11 +39,14 @@ act('d-pins', () => present('pins-clear'), '핀을 모두 닫습니다…');
 // 선택 영역은 '화면 전체에서' 고른다. 브라우저 탭만 찍으면 다른 앱도 다른 모니터도 담기지
 // 않는다(사용자 보고). 발표 도우미 앱이 화면을 직접 찍어 폴더에 저장하고 복사까지 한다.
 // 앱이 없으면 예전처럼 브라우저 탭에서 고른다.
+// 캡처 두 개는 캡처 탭의 ‘캡처 후’ 설정대로 한다. 편집기면 앱에 맡기지 않는다 — 앱은 폴더 저장 + 복사만 해서 편집기가 열리지 않는다.
+const editorAfter = async () => ((await chrome.storage.local.get('captureOptions')).captureOptions?.after ?? 'editor') === 'editor';
 act('d-area', async () => {
+  if (await editorAfter()) { await api('capture', {mode: 'area', notify: true}); return; }
   try { await present('snip-save'); }
-  catch { await api('capture', {mode: 'area', after: 'both', notify: true}); }
+  catch { await api('capture', {mode: 'area', notify: true}); }
 }, '화면에서 끌어 고르세요 · Esc 로 그만둡니다');
-act('d-full', () => api('capture', {mode: 'full', after: 'both', notify: true}), '페이지를 내려가며 찍는 중…');
+act('d-full', () => api('capture', {mode: 'full', notify: true}), '페이지를 내려가며 찍는 중…');
 // 사이드바(다있쌤 패널) 다시 열기. 캡처·녹화 때 저절로 닫히므로 여기서 도로 연다.
 // 누른 그 손길로 바로 열어야 Chrome 이 허락한다.
 // 이 창은 팝업이라 '마지막 초점 창' 이 도크 자신이다. 보통 창을 따로 찾아야 한다 —

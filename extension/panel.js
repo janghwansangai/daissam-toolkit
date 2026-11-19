@@ -1227,7 +1227,7 @@ event('cap-full','click',()=>runCapture('full','','페이지를 내려가며 찍
 // ‘편집기에서 꾸미기’ 면 앱에 맡기지 않는다 — 앱은 고른 그림을 폴더 저장 + 복사만 해서, 편집기가 열리지 않고
 // 저장만 되었다(사용자 보고, 맥 · 윈도우 모두). 확장이 탭 안에서 고르면 ‘캡처 후’ 설정대로 편집기가 열린다.
 const areaByApp=()=>capOptions.after!=='editor';
-event('cap-area','click',async()=>{
+async function areaCapture(){
   if(!areaByApp()){await runCapture('area','','페이지에서 끌어 고르세요 — 고른 곳을 편집기로 엽니다. Esc 로 그만둡니다.');return;}
   if(await hideThenPick('snip-save',''))return;
   try{
@@ -1237,14 +1237,15 @@ event('cap-area','click',async()=>{
     return;
   }catch{ showAreaMode(false); }
   await runCapture('area','','페이지에서 끌어 캡처할 곳을 고르세요. Esc 로 그만둡니다.');
-});
+}
+event('cap-area','click',areaCapture);
 // 선택 영역 단추가 지금 어느 방식으로 찍는지 단추 아래에 적는다. 같은 단추가 앱 유무에 따라 달리 움직이므로
 // 보여 주지 않으면 헷갈린다(사용자 보고).
 function showAreaMode(app){
   $('cap-area-mode').replaceChildren();
   if(!areaByApp()){
     const b=document.createElement('b');b.textContent='선택 영역: 이 탭 안에서 고릅니다';
-    $('cap-area-mode').append(b,' — ‘캡처 후’ 가 편집기에서 꾸미기라 고른 곳을 편집기로 엽니다.'+(app?' 다른 앱 · 다른 모니터까지 고르려면 ‘캡처 후’ 를 저장 · 복사로 바꾸세요.':''));
+    $('cap-area-mode').append(b,' — ‘캡처 후’ 가 편집기에서 꾸미기라 고른 곳을 편집기로 엽니다.'+(app?' 다른 앱 · 다른 모니터까지 고르려면 ‘캡처 후’ 를 저장 · 복사로 바꾸세요.':' 다른 앱 · 다른 모니터까지 고르려면 발표 도우미 앱을 설치하고(발표 탭) ‘캡처 후’ 를 저장 · 복사로 바꾸세요.'));
     return;
   }
   const b=document.createElement('b');
@@ -1256,15 +1257,10 @@ async function checkAreaMode(){
 }
 event('cap-delay','click',()=>runCapture('delay','',`${$('cap-delay-sec').value}초 뒤에 찍습니다. 원하는 화면을 띄워 두세요(확장 아이콘에 남은 초가 보입니다).`));
 event('cap-ocr','click',()=>runCapture('ocr','','글자를 뽑을 곳을 페이지에서 끌어 고르세요.'));
-// 도크의 빠른 캡처 두 개: 설정과 상관없이 늘 폴더 저장 + 클립보드 복사(바로 붙여넣기).
-// 도크의 선택 영역은 화면 전체에서 고른다(다른 앱·다른 모니터도). 앱이 없으면 탭에서 고른다.
-event('dock-cap-area','click',async()=>{
-  if(await hideThenPick('snip-save','both'))return;
-  capSay('화면에서 끌어 고르세요 · Esc 로 그만둡니다. 다른 앱·다른 모니터도 됩니다.');
-  try{ await api('presenter-command',{action:'snip-save'}); capSay('고른 곳을 ‘캡처이미지’ 폴더에 저장하고 복사합니다.'); }
-  catch{ await runCapture('area','both','페이지에서 끌어 고르세요 — 캡처이미지 폴더에 저장하고 복사합니다.'); }
-});
-event('dock-cap-full','click',()=>runCapture('full','both','페이지를 내려가며 찍는 중… — 캡처이미지 폴더에 저장하고 복사합니다.'));
+// 도크의 캡처 두 개도 캡처 탭의 ‘캡처 후’ 설정대로 한다(사용자 요청 — 예전에는 늘 폴더 저장 + 복사였다).
+// 선택 영역은 캡처 탭의 단추와 똑같다: 편집기면 탭 안에서 골라 편집기로, 아니면 앱이 화면 전체에서(없으면 탭 안).
+event('dock-cap-area','click',areaCapture);
+event('dock-cap-full','click',()=>runCapture('full','','페이지를 내려가며 찍는 중… 끝날 때까지 페이지를 건드리지 마세요.'));
 // 바탕화면·다른 앱 창. 사이드바에서 누른 그 손길로 바로 화면 고르기 창을 띄워야 해서
 // (getDisplayMedia 는 누른 직후에만 된다) 서비스 워커가 아니라 여기서 찍는다.
 event('cap-screen','click',async()=>{

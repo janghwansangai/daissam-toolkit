@@ -1,4 +1,4 @@
-// v0.46.1 ① 발표 도우미 앱이 있어도 ‘캡처 후: 편집기에서 꾸미기’ 면 선택 영역이 편집기로 열린다(예전에는 앱이 폴더 저장 + 복사만
+// v0.46.1 ① 발표 도우미 앱이 있어도(v0.46.2: 도크 세 곳의 캡처도 같은 설정을 따른다) ‘캡처 후: 편집기에서 꾸미기’ 면 선택 영역이 편집기로 열린다(예전에는 앱이 폴더 저장 + 복사만
 // 하고 편집기가 열리지 않았다 — 사용자 보고, 맥 · 윈도우). ② 유틸리티에서 이미지 편집기를 연다.
 // 앱 대신 시험용 가짜 도우미를 이 시험 프로필 안에만 등록한다(user-data-dir/NativeMessagingHosts). 받은 명령을 파일에 적는다.
 // 사용: node tests/e2e/editor.e2e.mjs   (CHROME_BIN 으로 다른 Chrome 판)
@@ -81,6 +81,35 @@ try {
     await C.send('Target.closeTarget', {targetId: editor.targetId});
   }
 
+  // ── v0.46.2 도크의 캡처도 ‘캡처 후’ 설정대로(편집기) ──
+  const drag = async () => { const m = (type, x, y) => C.send('Input.dispatchMouseEvent', {type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1}, web.sessionId);
+    await m('mousePressed', 120, 110); await m('mouseMoved', 300, 200); await m('mouseMoved', 460, 280); await m('mouseReleased', 460, 280); };
+  const waitPick = async () => { for (let i = 0; i < 60; i++) { if (await web.eval(`!!document.getElementById('__dais_pick')`)) return true; await sleep(100); } return false; };
+  const editorFrom = async (name, press, {area}) => {
+    await C.send('Target.activateTarget', {targetId: webId}); await sleep(400);
+    const from = said().length, open = (await pages(ORIGIN + '/capture.html')).map(t => t.targetId);
+    await press();
+    if (area) { const seen = await waitPick(); ok(`${name}: 페이지에서 고르는 화면이 뜬다`, seen); if (seen) await drag(); }
+    const ed = await waitPage(ORIGIN + '/capture.html#', open);
+    ok(`${name}: 앱에 맡기지 않는다`, !said().slice(from).includes('snip-save'), said().slice(from));
+    let filled = false;
+    if (ed) { const e = await attach(ed); await e.waitFor(`document.getElementById('empty').hidden===true`, 15000).catch(() => {}); filled = await e.eval(`document.getElementById('empty').hidden===true`); await C.send('Target.closeTarget', {targetId: ed.targetId}); }
+    // why= 가 붙은 편집기는 ‘저장하지 못해 대신 연 것’ 이다 — 설정대로 연 것이 아니다.
+    ok(`${name}: 꾸미기 화면이 그 그림으로 열린다`, !!ed && !/#new|why=/.test(ed.url) && filled, ed?.url);
+  };
+  await editorFrom('사이드바 도크 · 선택 영역', () => p.eval(`document.getElementById('dock-cap-area').click()`), {area: true});
+  await editorFrom('사이드바 도크 · 스크롤 캡처', () => p.eval(`document.getElementById('dock-cap-full').click()`), {area: false});
+  // 따로 띄운 도크(작은 창)
+  await p.eval(`chrome.windows.create({url:chrome.runtime.getURL('dock.html'),type:'popup',width:404,height:76}).then(w=>w.id)`);
+  const dockT = await waitPage(ORIGIN + '/dock.html');
+  const dk = dockT && await attach(dockT);
+  if (dk) await dk.waitFor(`document.readyState==='complete'&&!!document.getElementById('d-area')`, 8000);
+  ok('따로 띄운 도크 창이 열린다', !!dk);
+  if (dk) {
+    await editorFrom('따로 띄운 도크 · 선택 영역', () => dk.eval(`document.getElementById('d-area').click()`), {area: true});
+    await editorFrom('따로 띄운 도크 · 스크롤 캡처', () => dk.eval(`document.getElementById('d-full').click()`), {area: false});
+  }
+
   // 대조: 저장 · 복사를 고르면 예전처럼 앱이 화면 전체에서 고른다.
   await C.send('Target.activateTarget', {targetId: webId}); await sleep(300);
   await p.eval(`(()=>{const a=document.getElementById('cap-after');a.value='both';a.dispatchEvent(new Event('change'));})()`);
@@ -90,6 +119,12 @@ try {
   await p.eval(`document.getElementById('cap-area').click()`); await sleep(1200);
   ok('저장 + 복사 + 앱 있음: 그대로 앱에 맡긴다(다른 앱 · 다른 모니터도 고르기)', said().slice(before2).includes('snip-save'), said().slice(before2));
   ok('저장 + 복사 + 앱 있음: 페이지 안 고르기는 뜨지 않는다', !(await web.eval(`!!document.getElementById('__dais_pick')`)));
+  if (dk) {
+    const from = said().length;
+    await dk.eval(`document.getElementById('d-area').click()`); await sleep(1200);
+    ok('저장 + 복사 + 앱 있음: 따로 띄운 도크의 선택 영역도 앱에 맡긴다', said().slice(from).includes('snip-save'), said().slice(from));
+    await C.send('Target.closeTarget', {targetId: dockT.targetId});
+  }
 
   // ② 유틸리티의 이미지 편집기
   await p.eval(`document.querySelector('nav button[data-page="tools"]').click()`); await sleep(300);
